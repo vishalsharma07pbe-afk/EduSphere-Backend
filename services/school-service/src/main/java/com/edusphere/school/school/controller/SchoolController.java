@@ -1,0 +1,56 @@
+package com.edusphere.school.school.controller;
+
+import com.edusphere.school.school.DTO.CreateSchoolRequest;
+import com.edusphere.school.school.DTO.SchoolResponse;
+import com.edusphere.school.school.DTO.UpdateSchoolRequest;
+import com.edusphere.school.school.service.SchoolService;
+import jakarta.validation.Valid;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/v1/schools")
+public class SchoolController {
+    private final SchoolService schoolService;
+
+    public SchoolController(SchoolService schoolService) {
+        this.schoolService = schoolService;
+    }
+
+    @PostMapping
+    public ResponseEntity<SchoolResponse> createSchool(
+            @Valid @RequestBody CreateSchoolRequest request) {
+        SchoolResponse response = schoolService.createSchool(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @GetMapping("/{schoolId}")
+    public ResponseEntity<SchoolResponse> getSchool(
+            @PathVariable Long schoolId){
+        SchoolResponse response = schoolService.getSchoolById(schoolId);
+        return ResponseEntity.ok().body(response);
+    }
+
+    @GetMapping
+    public ResponseEntity<List<SchoolResponse>> getAllSchools(){
+        List<SchoolResponse> response = schoolService.getAllSchools();
+        return ResponseEntity.ok().body(response);
+    }
+
+    @PutMapping("/{schoolId}")
+    public ResponseEntity<SchoolResponse> updateSchool(
+            @PathVariable Long schoolId, @Valid @RequestBody UpdateSchoolRequest request){
+        SchoolResponse response = schoolService.updateSchool(schoolId, request);
+        return ResponseEntity.ok().body(response);
+    }
+
+    @DeleteMapping("/{schoolId}")
+    public ResponseEntity<Void> deleteSchool(@PathVariable Long schoolId){
+        schoolService.deleteSchool(schoolId);
+        return ResponseEntity.noContent().build();
+    }
+}

@@ -1,0 +1,25 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: school-service
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/school_service_db
+    username: school_service_user
+    password: ${SCHOOL_SERVICE_DB_PASSWORD}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+  flyway:
+    enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
