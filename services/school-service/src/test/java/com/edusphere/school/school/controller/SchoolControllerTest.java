@@ -12,6 +12,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import com.edusphere.school.common.dto.PageResponse;
 
 import java.util.List;
 
@@ -205,7 +206,7 @@ class SchoolControllerTest {
     }
 
     @Test
-    void getAllSchools_whenSchoolsExist_returnsSchoolResponses()
+    void getAllSchools_whenSchoolsExist_returnsPagedResponse()
             throws Exception {
 
         SchoolResponse firstSchool = createSchoolResponse(
@@ -220,38 +221,74 @@ class SchoolControllerTest {
                 "EduSphere International School"
         );
 
-        when(schoolService.getAllSchools())
-                .thenReturn(List.of(firstSchool, secondSchool));
+        PageResponse<SchoolResponse> response =
+                new PageResponse<>(
+                        List.of(firstSchool, secondSchool),
+                        0,
+                        10,
+                        2,
+                        1,
+                        true,
+                        true
+                );
 
-        mockMvc.perform(get(BASE_URL))
+        when(schoolService.getAllSchools(0, 10))
+                .thenReturn(response);
+
+        mockMvc.perform(get(BASE_URL)
+                        .param("page", "0")
+                        .param("size", "10"))
                 .andExpect(status().isOk())
                 .andExpect(content()
                         .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[0].id").value(1))
-                .andExpect(jsonPath("$[0].schoolCode")
+                .andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.content[0].id").value(1))
+                .andExpect(jsonPath("$.content[0].schoolCode")
                         .value("SCH001"))
-                .andExpect(jsonPath("$[1].id").value(2))
-                .andExpect(jsonPath("$[1].schoolCode")
-                        .value("SCH002"));
+                .andExpect(jsonPath("$.content[1].id").value(2))
+                .andExpect(jsonPath("$.content[1].schoolCode")
+                        .value("SCH002"))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(10))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.totalPages").value(1))
+                .andExpect(jsonPath("$.first").value(true))
+                .andExpect(jsonPath("$.last").value(true));
 
-        verify(schoolService).getAllSchools();
+        verify(schoolService).getAllSchools(0, 10);
     }
 
     @Test
-    void getAllSchools_whenNoSchoolsExist_returnsEmptyList()
+    void getAllSchools_whenNoSchoolsExist_returnsEmptyPage()
             throws Exception {
 
-        when(schoolService.getAllSchools())
-                .thenReturn(List.of());
+        PageResponse<SchoolResponse> response =
+                new PageResponse<>(
+                        List.of(),
+                        0,
+                        10,
+                        0,
+                        0,
+                        true,
+                        true
+                );
+
+        when(schoolService.getAllSchools(0, 10))
+                .thenReturn(response);
 
         mockMvc.perform(get(BASE_URL))
                 .andExpect(status().isOk())
                 .andExpect(content()
                         .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.length()").value(0));
+                .andExpect(jsonPath("$.content.length()").value(0))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(10))
+                .andExpect(jsonPath("$.totalElements").value(0))
+                .andExpect(jsonPath("$.totalPages").value(0))
+                .andExpect(jsonPath("$.first").value(true))
+                .andExpect(jsonPath("$.last").value(true));
 
-        verify(schoolService).getAllSchools();
+        verify(schoolService).getAllSchools(0, 10);
     }
 
     @Test

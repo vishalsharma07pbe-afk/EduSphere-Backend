@@ -1,5 +1,6 @@
 package com.edusphere.school.school.controller;
 
+import com.edusphere.school.common.dto.PageResponse;
 import com.edusphere.school.school.DTO.CreateSchoolRequest;
 import com.edusphere.school.school.DTO.SchoolResponse;
 import com.edusphere.school.school.DTO.UpdateSchoolRequest;
@@ -36,9 +37,14 @@ public class SchoolController {
     }
 
     @GetMapping
-    public ResponseEntity<List<SchoolResponse>> getAllSchools(){
-        List<SchoolResponse> response = schoolService.getAllSchools();
-        return ResponseEntity.ok().body(response);
+    public ResponseEntity<PageResponse<SchoolResponse>> getAllSchools(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size
+    ) {
+        PageResponse<SchoolResponse> response =
+                schoolService.getAllSchools(page, size);
+
+        return ResponseEntity.ok(response);
     }
 
     @PutMapping("/{schoolId}")

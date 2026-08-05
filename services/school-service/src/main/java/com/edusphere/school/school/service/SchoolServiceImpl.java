@@ -1,5 +1,6 @@
 package com.edusphere.school.school.service;
 
+import com.edusphere.school.common.dto.PageResponse;
 import com.edusphere.school.school.DTO.CreateSchoolRequest;
 import com.edusphere.school.school.DTO.SchoolResponse;
 import com.edusphere.school.school.DTO.UpdateSchoolRequest;
@@ -8,6 +9,9 @@ import com.edusphere.school.school.exception.DuplicateResourceException;
 import com.edusphere.school.school.exception.ResourceNotFoundException;
 import com.edusphere.school.school.mapper.SchoolMapper;
 import com.edusphere.school.school.repository.schoolRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
@@ -64,10 +68,29 @@ public class SchoolServiceImpl implements SchoolService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<SchoolResponse> getAllSchools() {
-        return schoolRepository.findAll()
-                .stream()
-                .map(schoolMapper::toResponse)
-                .toList();
+    public PageResponse<SchoolResponse> getAllSchools(
+            int page,
+            int size
+    ) {
+        Pageable pageable = PageRequest.of(page, size);
+
+        Page<School> schoolPage =
+                schoolRepository.findAll(pageable);
+
+        List<SchoolResponse> schoolResponses =
+                schoolPage.getContent()
+                        .stream()
+                        .map(schoolMapper::toResponse)
+                        .toList();
+
+        return new PageResponse<>(
+                schoolResponses,
+                schoolPage.getNumber(),
+                schoolPage.getSize(),
+                schoolPage.getTotalElements(),
+                schoolPage.getTotalPages(),
+                schoolPage.isFirst(),
+                schoolPage.isLast()
+        );
     }
 }

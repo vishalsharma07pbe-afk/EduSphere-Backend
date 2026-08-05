@@ -1,5 +1,6 @@
 package com.edusphere.school.school.service;
 
+import com.edusphere.school.common.dto.PageResponse;
 import com.edusphere.school.school.DTO.CreateSchoolRequest;
 import com.edusphere.school.school.DTO.SchoolResponse;
 import com.edusphere.school.school.DTO.UpdateSchoolRequest;
@@ -13,6 +14,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import java.util.List;
 import java.util.Optional;
@@ -188,32 +193,81 @@ class SchoolServiceImplTest {
     }
 
     @Test
-    void getAllSchools_whenSchoolExists_returnsSchoolResponse() {
+    void getAllSchools_whenSchoolsExist_returnsPageResponse() {
+        // Arrange
+        int page = 0;
+        int size = 10;
+
+        Pageable pageable = PageRequest.of(page, size);
+
         School school1 = mock(School.class);
         School school2 = mock(School.class);
+
         SchoolResponse response1 = mock(SchoolResponse.class);
         SchoolResponse response2 = mock(SchoolResponse.class);
 
-        when(schoolRepository.findAll()).thenReturn(List.of(school1,school2));
-        when(schoolMapper.toResponse(school1)).thenReturn(response1);
-        when(schoolMapper.toResponse(school2)).thenReturn(response2);
+        Page<School> schoolPage = new PageImpl<>(
+                List.of(school1, school2),
+                pageable,
+                2
+        );
 
-        List<SchoolResponse> actualResponse = schoolService.getAllSchools();
-        assertEquals(List.of(response1, response2), actualResponse);
+        when(schoolRepository.findAll(pageable))
+                .thenReturn(schoolPage);
 
-        verify(schoolRepository).findAll();
+        when(schoolMapper.toResponse(school1))
+                .thenReturn(response1);
+
+        when(schoolMapper.toResponse(school2))
+                .thenReturn(response2);
+
+        // Act
+        PageResponse<SchoolResponse> actualResponse =
+                schoolService.getAllSchools(page, size);
+
+        // Assert
+        assertEquals(
+                List.of(response1, response2),
+                actualResponse.content()
+        );
+
+        assertEquals(0, actualResponse.page());
+        assertEquals(10, actualResponse.size());
+        assertEquals(2, actualResponse.totalElements());
+        assertEquals(1, actualResponse.totalPages());
+        assertTrue(actualResponse.first());
+        assertTrue(actualResponse.last());
+
+        verify(schoolRepository).findAll(pageable);
         verify(schoolMapper).toResponse(school1);
         verify(schoolMapper).toResponse(school2);
     }
 
     @Test
-    void getAllSchools_whenSchoolDoesNotExist_returnsEmptyList() {
-        when(schoolRepository.findAll()).thenReturn(List.of());
+    void getAllSchools_whenNoSchoolsExist_returnsEmptyPage() {
+        // Arrange
+        int page = 0;
+        int size = 10;
 
-        List<SchoolResponse> actualResponse = schoolService.getAllSchools();
-        assertTrue(actualResponse.isEmpty());
+        Pageable pageable = PageRequest.of(page, size);
 
-        verify(schoolRepository).findAll();
+        Page<School> emptyPage = Page.empty(pageable);
+
+        when(schoolRepository.findAll(pageable))
+                .thenReturn(emptyPage);
+
+        // Act
+        PageResponse<SchoolResponse> actualResponse =
+                schoolService.getAllSchools(page, size);
+
+        // Assert
+        assertTrue(actualResponse.content().isEmpty());
+        assertEquals(0, actualResponse.totalElements());
+        assertEquals(0, actualResponse.totalPages());
+        assertTrue(actualResponse.first());
+        assertTrue(actualResponse.last());
+
+        verify(schoolRepository).findAll(pageable);
         verifyNoInteractions(schoolMapper);
     }
 }
