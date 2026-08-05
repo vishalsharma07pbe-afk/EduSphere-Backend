@@ -13,6 +13,12 @@ target/
 .env
 *.env
 
+# Local Spring configuration containing secrets
+application-local.yml
+application-local.yaml
+**/application-local.yml
+**/application-local.yaml
+
 # Application logs
 logs/
 *.log
