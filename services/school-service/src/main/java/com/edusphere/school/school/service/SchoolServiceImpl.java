@@ -36,7 +36,7 @@ public class SchoolServiceImpl implements SchoolService {
     @Transactional
     public SchoolResponse createSchool(CreateSchoolRequest request) {
         if(schoolRepository.existsBySchoolCode(request.getSchoolCode())) {
-            throw new DuplicateResourceException("School code not found");
+            throw new DuplicateResourceException("School code already exists");
         }
         School school = schoolMapper.toEntity(request);
         School savedSchool = schoolRepository.save(school);
