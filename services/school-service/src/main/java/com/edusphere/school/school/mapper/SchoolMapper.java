@@ -26,7 +26,6 @@ public class SchoolMapper {
             return null;
         }
 
-        SchoolResponse response = new SchoolResponse();
         return new SchoolResponse(
                 school.getId(),
                 school.getSchoolCode(),
