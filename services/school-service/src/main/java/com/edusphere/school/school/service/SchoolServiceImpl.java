@@ -5,6 +5,7 @@ import com.edusphere.school.school.DTO.CreateSchoolRequest;
 import com.edusphere.school.school.DTO.SchoolResponse;
 import com.edusphere.school.school.DTO.UpdateSchoolRequest;
 import com.edusphere.school.school.entity.School;
+import com.edusphere.school.school.enums.SchoolStatus;
 import com.edusphere.school.school.exception.DuplicateResourceException;
 import com.edusphere.school.school.exception.ResourceNotFoundException;
 import com.edusphere.school.school.mapper.SchoolMapper;
@@ -16,9 +17,21 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import static com.edusphere.school.school.enums.SchoolStatus.INACTIVE;
+import static com.edusphere.school.school.enums.SchoolStatus.ACTIVE;
+import org.springframework.data.domain.Sort;
+import com.edusphere.school.school.exception.InvalidRequestException;
+import java.util.Set;
 
 @Service
 public class SchoolServiceImpl implements SchoolService {
+    private static final Set<String> ALLOWED_SORT_FIELDS =
+        Set.of(
+                "name",
+                "schoolCode",
+                "createdAt",
+                "updatedAt"
+        );
+
 
     private final schoolRepository schoolRepository;
     private final SchoolMapper schoolMapper;
@@ -67,15 +80,66 @@ public class SchoolServiceImpl implements SchoolService {
     }
 
     @Override
+    @Transactional
+    public SchoolResponse restoreSchool(long schoolId) {
+        School school = schoolRepository.findById(schoolId)
+                .orElseThrow(()->new ResourceNotFoundException("School not found"));
+        school.setStatus(ACTIVE);
+        schoolRepository.save(school);
+        return schoolMapper.toResponse(school);
+    }
+
+
+    @Override
     @Transactional(readOnly = true)
     public PageResponse<SchoolResponse> getAllSchools(
             int page,
-            int size
-    ) {
-        Pageable pageable = PageRequest.of(page, size);
+            int size,
+            String sortBy,
+            String direction,
+            SchoolStatus status,
+            String search
+        ){
+        if (page < 0) {
+        throw new InvalidRequestException(
+                "Page number cannot be negative"
+        );
+        }
 
-        Page<School> schoolPage =
-                schoolRepository.findAll(pageable);
+        if (size < 1 || size > 100) {
+            throw new InvalidRequestException(
+                    "Page size must be between 1 and 100"
+            );
+        }
+
+        if (!ALLOWED_SORT_FIELDS.contains(sortBy)) {
+            throw new InvalidRequestException(
+                    "Invalid sort field: " + sortBy
+            );
+        }
+
+        Sort.Direction sortDirection;
+
+        try {
+            sortDirection = Sort.Direction.fromString(direction);
+        } catch (IllegalArgumentException exception) {
+            throw new InvalidRequestException(
+                    "Sort direction must be asc or desc"
+            );
+        }
+        Sort sort = Sort.by(sortDirection, sortBy);
+        Pageable pageable = PageRequest.of(page, size, sort);
+
+        String normalizedSearch =
+        search == null ? "" : search.trim();
+
+        Page<School> schoolPage;
+
+        if(normalizedSearch.isBlank()) {
+            schoolPage = schoolRepository.findAllByStatus(status, pageable);
+        } else {
+            schoolPage = schoolRepository.searchByStatus(status, normalizedSearch, pageable);
+        }
 
         List<SchoolResponse> schoolResponses =
                 schoolPage.getContent()

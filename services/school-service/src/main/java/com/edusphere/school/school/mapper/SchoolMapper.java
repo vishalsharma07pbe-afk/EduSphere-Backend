@@ -22,6 +22,11 @@ public class SchoolMapper {
     }
 
     public SchoolResponse toResponse(School school) {
+        if(school == null) {
+            return null;
+        }
+
+        SchoolResponse response = new SchoolResponse();
         return new SchoolResponse(
                 school.getId(),
                 school.getSchoolCode(),
@@ -29,6 +34,7 @@ public class SchoolMapper {
                 school.getEmail(),
                 school.getPhone(),
                 school.getAddress(),
+                school.getStatus(),
                 school.getCreatedAt(),
                 school.getUpdatedAt()
         );

@@ -7,6 +7,7 @@ import com.edusphere.school.school.DTO.UpdateSchoolRequest;
 import com.edusphere.school.school.entity.School;
 import com.edusphere.school.school.exception.DuplicateResourceException;
 import com.edusphere.school.school.exception.ResourceNotFoundException;
+import com.edusphere.school.school.exception.InvalidRequestException;
 import com.edusphere.school.school.mapper.SchoolMapper;
 import com.edusphere.school.school.repository.schoolRepository;
 import org.junit.jupiter.api.Test;
@@ -18,12 +19,16 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 
 import java.util.List;
 import java.util.Optional;
 
+import com.edusphere.school.school.enums.SchoolStatus;
+import static com.edusphere.school.school.enums.SchoolStatus.ACTIVE;
 import static com.edusphere.school.school.enums.SchoolStatus.INACTIVE;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -193,12 +198,51 @@ class SchoolServiceImplTest {
     }
 
     @Test
-    void getAllSchools_whenSchoolsExist_returnsPageResponse() {
+    void restoreSchool_whenSchoolExists_returnsSchoolResponse() {
+        Long id = 1L;
+        School school = mock(School.class);
+        SchoolResponse expectedResponse = mock(SchoolResponse.class);
+
+        when(schoolRepository.findById(id)).thenReturn(Optional.of(school));
+        when(schoolRepository.save(school)).thenReturn(school);
+        when(schoolMapper.toResponse(school)).thenReturn(expectedResponse);
+
+        SchoolResponse actualResponse = schoolService.restoreSchool(id);
+
+        assertSame(expectedResponse, actualResponse);
+        verify(schoolRepository).findById(id);
+        verify(school).setStatus(ACTIVE);
+        verify(schoolRepository).save(school);
+        verify(schoolMapper).toResponse(school);
+    }
+
+    @Test
+    void restoreSchool_whenSchoolDoesNotExist_throwsResourceNotFoundException() {
+        Long id = 99L;
+        when(schoolRepository.findById(id)).thenReturn(Optional.empty());
+
+        ResourceNotFoundException exception = assertThrows(
+                ResourceNotFoundException.class,
+                ()->schoolService.restoreSchool(id));
+
+        assertEquals("School not found", exception.getMessage());
+        verify(schoolRepository).findById(id);
+        verify(schoolRepository,never()).save(any(School.class));
+        verifyNoInteractions(schoolMapper);
+    }
+
+    @Test
+    void getAllSchools_whenSchoolsExist_returnsSortedPageResponse() {
         // Arrange
         int page = 0;
         int size = 10;
+        String sortBy = "name";
+        String direction = "asc";
 
-        Pageable pageable = PageRequest.of(page, size);
+        Sort sort = Sort.by(Sort.Direction.ASC, sortBy);
+
+        Pageable pageable =
+                PageRequest.of(page, size, sort);
 
         School school1 = mock(School.class);
         School school2 = mock(School.class);
@@ -212,7 +256,9 @@ class SchoolServiceImplTest {
                 2
         );
 
-        when(schoolRepository.findAll(pageable))
+        SchoolStatus status = SchoolStatus.ACTIVE;
+
+        when(schoolRepository.findAllByStatus(status, pageable))
                 .thenReturn(schoolPage);
 
         when(schoolMapper.toResponse(school1))
@@ -223,7 +269,14 @@ class SchoolServiceImplTest {
 
         // Act
         PageResponse<SchoolResponse> actualResponse =
-                schoolService.getAllSchools(page, size);
+                schoolService.getAllSchools(
+                        page,
+                        size,
+                        sortBy,
+                        direction,
+                        status,
+                        ""
+                );
 
         // Assert
         assertEquals(
@@ -238,27 +291,90 @@ class SchoolServiceImplTest {
         assertTrue(actualResponse.first());
         assertTrue(actualResponse.last());
 
-        verify(schoolRepository).findAll(pageable);
+        verify(schoolRepository).findAllByStatus(status, pageable);
         verify(schoolMapper).toResponse(school1);
         verify(schoolMapper).toResponse(school2);
-    }
+  }
 
     @Test
-    void getAllSchools_whenNoSchoolsExist_returnsEmptyPage() {
+    void getAllSchools_whenSearchIsProvided_returnsFilteredPage() {
         // Arrange
         int page = 0;
         int size = 10;
+        String sortBy = "name";
+        String direction = "desc";
 
-        Pageable pageable = PageRequest.of(page, size);
+        Sort sort = Sort.by(Sort.Direction.DESC, sortBy);
+        Pageable pageable = PageRequest.of(page, size, sort);
+
+        School school = mock(School.class);
+        SchoolResponse response = mock(SchoolResponse.class);
+
+        Page<School> schoolPage = new PageImpl<>(
+                List.of(school),
+                pageable,
+                1
+        );
+
+        SchoolStatus status = SchoolStatus.ACTIVE;
+        String search = "public";
+
+        when(schoolRepository.searchByStatus(status, search, pageable))
+                .thenReturn(schoolPage);
+        when(schoolMapper.toResponse(school)).thenReturn(response);
+
+        // Act
+        PageResponse<SchoolResponse> actualResponse =
+                schoolService.getAllSchools(
+                        page,
+                        size,
+                        sortBy,
+                        direction,
+                        status,
+                        search
+                );
+
+        // Assert
+        assertEquals(List.of(response), actualResponse.content());
+        assertEquals(1, actualResponse.totalElements());
+        assertEquals(1, actualResponse.totalPages());
+        assertTrue(actualResponse.first());
+        assertTrue(actualResponse.last());
+
+        verify(schoolRepository).searchByStatus(status, search, pageable);
+        verify(schoolMapper).toResponse(school);
+    }
+
+    @Test
+    void getAllSchools_whenNoSchoolsExist_returnsEmptySortedPage() {
+        // Arrange
+        int page = 0;
+        int size = 10;
+        String sortBy = "name";
+        String direction = "asc";
+
+        Sort sort = Sort.by(Sort.Direction.ASC, sortBy);
+
+        Pageable pageable =
+                PageRequest.of(page, size, sort);
 
         Page<School> emptyPage = Page.empty(pageable);
 
-        when(schoolRepository.findAll(pageable))
+        SchoolStatus status = SchoolStatus.ACTIVE;
+
+        when(schoolRepository.findAllByStatus(status, pageable))
                 .thenReturn(emptyPage);
 
         // Act
         PageResponse<SchoolResponse> actualResponse =
-                schoolService.getAllSchools(page, size);
+                schoolService.getAllSchools(
+                        page,
+                        size,
+                        sortBy,
+                        direction,
+                        status,
+                        ""
+                );
 
         // Assert
         assertTrue(actualResponse.content().isEmpty());
@@ -267,7 +383,95 @@ class SchoolServiceImplTest {
         assertTrue(actualResponse.first());
         assertTrue(actualResponse.last());
 
-        verify(schoolRepository).findAll(pageable);
+        verify(schoolRepository).findAllByStatus(status, pageable);
         verifyNoInteractions(schoolMapper);
+   }
+
+    @Test
+    void getAllSchools_whenPageIsNegative_throwsInvalidRequestException() {
+        InvalidRequestException exception = assertThrows(
+                InvalidRequestException.class,
+                () -> schoolService.getAllSchools(
+                        -1,
+                        10,
+                        "name",
+                        "asc",
+                        SchoolStatus.ACTIVE,
+                        ""
+                )
+        );
+
+        assertEquals(
+                "Page number cannot be negative",
+                exception.getMessage()
+        );
+
+        verifyNoInteractions(schoolRepository, schoolMapper);
     }
+
+    @Test
+    void getAllSchools_whenSizeIsInvalid_throwsInvalidRequestException() {
+        InvalidRequestException exception = assertThrows(
+                InvalidRequestException.class,
+                () -> schoolService.getAllSchools(
+                        0,
+                        0,
+                        "name",
+                        "asc",
+                        SchoolStatus.ACTIVE,
+                        ""
+                )
+        );
+
+        assertEquals(
+                "Page size must be between 1 and 100",
+                exception.getMessage()
+        );
+
+        verifyNoInteractions(schoolRepository, schoolMapper);
+        }
+
+    @Test
+    void getAllSchools_whenSortFieldIsInvalid_throwsInvalidRequestException() {
+        InvalidRequestException exception = assertThrows(
+                InvalidRequestException.class,
+                () -> schoolService.getAllSchools(
+                        0,
+                        10,
+                        "unknownField",
+                        "asc",
+                        SchoolStatus.ACTIVE,
+                        ""
+                )
+        );
+
+        assertEquals(
+                "Invalid sort field: unknownField",
+                exception.getMessage()
+        );
+
+        verifyNoInteractions(schoolRepository, schoolMapper);
+  }
+
+    @Test
+    void getAllSchools_whenDirectionIsInvalid_throwsInvalidRequestException() {
+        InvalidRequestException exception = assertThrows(
+                InvalidRequestException.class,
+                () -> schoolService.getAllSchools(
+                        0,
+                        10,
+                        "name",
+                        "sideways",
+                        SchoolStatus.ACTIVE,
+                        ""
+                )
+        );
+
+        assertEquals(
+                "Sort direction must be asc or desc",
+                exception.getMessage()
+        );
+
+        verifyNoInteractions(schoolRepository, schoolMapper);
+   }
 }
