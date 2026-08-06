@@ -4,6 +4,7 @@ import com.edusphere.school.common.dto.PageResponse;
 import com.edusphere.school.school.DTO.CreateSchoolRequest;
 import com.edusphere.school.school.DTO.SchoolResponse;
 import com.edusphere.school.school.DTO.UpdateSchoolRequest;
+import com.edusphere.school.school.enums.SchoolStatus;
 import com.edusphere.school.school.service.SchoolService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,10 +40,14 @@ public class SchoolController {
     @GetMapping
     public ResponseEntity<PageResponse<SchoolResponse>> getAllSchools(
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(defaultValue = "name") String sortBy,
+            @RequestParam(defaultValue = "asc") String direction,
+            @RequestParam(defaultValue = "ACTIVE") SchoolStatus status,
+            @RequestParam(defaultValue = "") String search
     ) {
         PageResponse<SchoolResponse> response =
-                schoolService.getAllSchools(page, size);
+                schoolService.getAllSchools(page, size, sortBy, direction, status, search);
 
         return ResponseEntity.ok(response);
     }
@@ -58,5 +63,11 @@ public class SchoolController {
     public ResponseEntity<Void> deleteSchool(@PathVariable Long schoolId){
         schoolService.deleteSchool(schoolId);
         return ResponseEntity.noContent().build();
+    }
+
+    @PatchMapping("/{schoolId}/restore")
+    public ResponseEntity<SchoolResponse> restoreSchool(@PathVariable Long schoolId){
+        SchoolResponse response = schoolService.restoreSchool(schoolId);
+        return ResponseEntity.ok().body(response);
     }
 }

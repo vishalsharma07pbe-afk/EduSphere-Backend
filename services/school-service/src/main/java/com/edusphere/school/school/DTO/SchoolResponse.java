@@ -1,6 +1,7 @@
 package com.edusphere.school.school.DTO;
 
 import java.time.OffsetDateTime;
+import com.edusphere.school.school.enums.SchoolStatus;
 
 public class SchoolResponse {
     private Long id;
@@ -9,19 +10,21 @@ public class SchoolResponse {
     private String email;
     private String phone;
     private String address;
+    private SchoolStatus status;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
 
     public SchoolResponse() {
     }
 
-    public SchoolResponse(Long id, String schoolCode, String name, String email, String phone, String address, OffsetDateTime createdAt, OffsetDateTime updatedAt) {
+    public SchoolResponse(Long id, String schoolCode, String name, String email, String phone, String address, SchoolStatus status, OffsetDateTime createdAt, OffsetDateTime updatedAt) {
         this.id = id;
         this.schoolCode = schoolCode;
         this.name = name;
         this.email = email;
         this.phone = phone;
         this.address = address;
+        this.status = status;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
     }
@@ -75,6 +78,14 @@ public class SchoolResponse {
         this.address = address;
     }
 
+    public SchoolStatus getStatus() {
+        return status;
+    }
+
+    public void setStatus(SchoolStatus status) {
+        this.status = status;
+    }
+ 
     public OffsetDateTime getCreatedAt() {
         return createdAt;
     }

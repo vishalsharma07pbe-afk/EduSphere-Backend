@@ -3,8 +3,10 @@ package com.edusphere.school.school.controller;
 import com.edusphere.school.school.DTO.CreateSchoolRequest;
 import com.edusphere.school.school.DTO.SchoolResponse;
 import com.edusphere.school.school.DTO.UpdateSchoolRequest;
+import com.edusphere.school.school.enums.SchoolStatus;
 import com.edusphere.school.school.exception.DuplicateResourceException;
 import com.edusphere.school.school.exception.ResourceNotFoundException;
+import com.edusphere.school.school.exception.InvalidRequestException;
 import com.edusphere.school.school.service.SchoolService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,6 +25,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -57,7 +60,8 @@ class SchoolControllerTest {
         SchoolResponse response = createSchoolResponse(
                 1L,
                 "SCH001",
-                "EduSphere Public School"
+                "EduSphere Public School",
+                SchoolStatus.ACTIVE
         );
 
         when(schoolService.createSchool(
@@ -79,7 +83,8 @@ class SchoolControllerTest {
                 .andExpect(jsonPath("$.phone")
                         .value("9876543210"))
                 .andExpect(jsonPath("$.address")
-                        .value("New Delhi"));
+                        .value("New Delhi"))
+                .andExpect(jsonPath("$.status").value("ACTIVE"));
 
         verify(schoolService)
                 .createSchool(any(CreateSchoolRequest.class));
@@ -158,7 +163,8 @@ class SchoolControllerTest {
                 .thenReturn(createSchoolResponse(
                         schoolId,
                         "SCH001",
-                        "EduSphere Public School"
+                        "EduSphere Public School",
+                        SchoolStatus.ACTIVE
                 ));
 
         mockMvc.perform(get(
@@ -171,7 +177,8 @@ class SchoolControllerTest {
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.schoolCode").value("SCH001"))
                 .andExpect(jsonPath("$.name")
-                        .value("EduSphere Public School"));
+                        .value("EduSphere Public School"))
+                .andExpect(jsonPath("$.status").value("ACTIVE"));
 
         verify(schoolService).getSchoolById(schoolId);
     }
@@ -212,13 +219,15 @@ class SchoolControllerTest {
         SchoolResponse firstSchool = createSchoolResponse(
                 1L,
                 "SCH001",
-                "EduSphere Public School"
+                "EduSphere Public School",
+                SchoolStatus.ACTIVE
         );
 
         SchoolResponse secondSchool = createSchoolResponse(
                 2L,
                 "SCH002",
-                "EduSphere International School"
+                "EduSphere International School",
+                SchoolStatus.ACTIVE
         );
 
         PageResponse<SchoolResponse> response =
@@ -232,12 +241,22 @@ class SchoolControllerTest {
                         true
                 );
 
-        when(schoolService.getAllSchools(0, 10))
-                .thenReturn(response);
+        when(schoolService.getAllSchools(
+                0,
+                10,
+                "name",
+                "desc",
+                SchoolStatus.ACTIVE,
+                ""
+        )).thenReturn(response);
 
         mockMvc.perform(get(BASE_URL)
                         .param("page", "0")
-                        .param("size", "10"))
+                        .param("size", "10")
+                        .param("sortBy", "name")
+                        .param("direction", "desc")
+                        .param("status", "ACTIVE")
+                        )
                 .andExpect(status().isOk())
                 .andExpect(content()
                         .contentType(MediaType.APPLICATION_JSON))
@@ -245,9 +264,13 @@ class SchoolControllerTest {
                 .andExpect(jsonPath("$.content[0].id").value(1))
                 .andExpect(jsonPath("$.content[0].schoolCode")
                         .value("SCH001"))
+                .andExpect(jsonPath("$.content[0].status")
+                        .value("ACTIVE"))
                 .andExpect(jsonPath("$.content[1].id").value(2))
                 .andExpect(jsonPath("$.content[1].schoolCode")
                         .value("SCH002"))
+                .andExpect(jsonPath("$.content[1].status")
+                        .value("ACTIVE"))
                 .andExpect(jsonPath("$.page").value(0))
                 .andExpect(jsonPath("$.size").value(10))
                 .andExpect(jsonPath("$.totalElements").value(2))
@@ -255,7 +278,71 @@ class SchoolControllerTest {
                 .andExpect(jsonPath("$.first").value(true))
                 .andExpect(jsonPath("$.last").value(true));
 
-        verify(schoolService).getAllSchools(0, 10);
+        verify(schoolService).getAllSchools(
+                0,
+                10,
+                "name",
+                "desc",
+                SchoolStatus.ACTIVE,
+                ""
+        );
+    }
+
+    @Test
+    void getAllSchools_whenSearchIsProvided_returnsFilteredPage()
+            throws Exception {
+
+        SchoolResponse firstSchool = createSchoolResponse(
+                1L,
+                "SCH001",
+                "EduSphere Public School",
+                SchoolStatus.ACTIVE
+        );
+
+        PageResponse<SchoolResponse> response = new PageResponse<>(
+                List.of(firstSchool),
+                0,
+                10,
+                1,
+                1,
+                true,
+                true
+        );
+
+        when(schoolService.getAllSchools(
+                0,
+                10,
+                "name",
+                "desc",
+                SchoolStatus.ACTIVE,
+                "Public"
+        )).thenReturn(response);
+
+        mockMvc.perform(get(BASE_URL)
+                        .param("page", "0")
+                        .param("size", "10")
+                        .param("sortBy", "name")
+                        .param("direction", "desc")
+                        .param("status", "ACTIVE")
+                        .param("search", "Public"))
+                .andExpect(status().isOk())
+                .andExpect(content()
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].schoolCode")
+                        .value("SCH001"))
+                .andExpect(jsonPath("$.content[0].status")
+                        .value("ACTIVE"))
+                .andExpect(jsonPath("$.totalElements").value(1));
+
+        verify(schoolService).getAllSchools(
+                0,
+                10,
+                "name",
+                "desc",
+                SchoolStatus.ACTIVE,
+                "Public"
+        );
     }
 
     @Test
@@ -273,10 +360,17 @@ class SchoolControllerTest {
                         true
                 );
 
-        when(schoolService.getAllSchools(0, 10))
-                .thenReturn(response);
+        when(schoolService.getAllSchools(
+                0,
+                10,
+                "name",
+                "asc",
+                SchoolStatus.ACTIVE,
+                ""
+        )).thenReturn(response);
 
-        mockMvc.perform(get(BASE_URL))
+        mockMvc.perform(get(BASE_URL)
+                        .param("status", "ACTIVE"))
                 .andExpect(status().isOk())
                 .andExpect(content()
                         .contentType(MediaType.APPLICATION_JSON))
@@ -288,7 +382,14 @@ class SchoolControllerTest {
                 .andExpect(jsonPath("$.first").value(true))
                 .andExpect(jsonPath("$.last").value(true));
 
-        verify(schoolService).getAllSchools(0, 10);
+        verify(schoolService).getAllSchools(
+                0,
+                10,
+                "name",
+                "asc",
+                SchoolStatus.ACTIVE,
+                ""
+        );
     }
 
     @Test
@@ -309,7 +410,8 @@ class SchoolControllerTest {
         SchoolResponse response = createSchoolResponse(
                 schoolId,
                 "SCH001",
-                "Updated EduSphere School"
+                "Updated EduSphere School",
+                SchoolStatus.ACTIVE
         );
 
         when(schoolService.updateSchool(
@@ -327,7 +429,8 @@ class SchoolControllerTest {
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.schoolCode").value("SCH001"))
                 .andExpect(jsonPath("$.name")
-                        .value("Updated EduSphere School"));
+                        .value("Updated EduSphere School"))
+                .andExpect(jsonPath("$.status").value("ACTIVE"));
 
         verify(schoolService).updateSchool(
                 eq(schoolId),
@@ -442,10 +545,61 @@ class SchoolControllerTest {
         verify(schoolService).deleteSchool(schoolId);
     }
 
+    @Test
+    void restoreSchool_whenSchoolExists_returnsSchoolResponse()
+            throws Exception {
+
+        SchoolResponse response = createSchoolResponse(
+                1L,
+                "SCH001",
+                "EduSphere Public School",
+                SchoolStatus.ACTIVE
+        );
+
+        when(schoolService.restoreSchool(1L)).thenReturn(response);
+
+        mockMvc.perform(patch(
+                        BASE_URL + "/{schoolId}/restore",
+                        1L
+                ))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.schoolCode").value("SCH001"))
+                .andExpect(jsonPath("$.name").value("EduSphere Public School"))
+                .andExpect(jsonPath("$.status").value("ACTIVE"));
+
+        verify(schoolService).restoreSchool(1L);
+    }
+
+    @Test
+    void restoreSchool_whenSchoolDoesNotExist_returnsNotFound()
+            throws Exception {
+
+        long schoolId = 99L;
+
+        org.mockito.Mockito.doThrow(
+                new ResourceNotFoundException("School not found")
+        ).when(schoolService).restoreSchool(schoolId);
+
+        mockMvc.perform(patch(
+                        BASE_URL + "/{schoolId}/restore",
+                        schoolId
+                ))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.message")
+                        .value("School not found"))
+                .andExpect(jsonPath("$.path")
+                        .value(BASE_URL + "/99/restore"));
+
+        verify(schoolService).restoreSchool(schoolId);
+    }
+
     private SchoolResponse createSchoolResponse(
             long id,
             String schoolCode,
-            String name
+            String name,
+            SchoolStatus status
     ) {
         return new SchoolResponse(
                 id,
@@ -454,8 +608,73 @@ class SchoolControllerTest {
                 "school@edusphere.com",
                 "9876543210",
                 "New Delhi",
+                status,
                 null,
                 null
         );
+    }
+
+    @Test
+    void getAllSchools_whenParametersAreInvalid_returnsBadRequest()
+                throws Exception {
+
+        when(schoolService.getAllSchools(
+                0,
+                10,
+                "unknownField",
+                "asc",
+                SchoolStatus.ACTIVE,
+                ""
+        )).thenThrow(
+                new InvalidRequestException(
+                        "Invalid sort field: unknownField"
+                )
+        );
+
+        mockMvc.perform(get(BASE_URL)
+                        .param("page", "0")
+                        .param("size", "10")
+                        .param("sortBy", "unknownField")
+                        .param("direction", "asc")
+                        .param("status", "ACTIVE"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content()
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.message")
+                        .value("Invalid sort field: unknownField"))
+                .andExpect(jsonPath("$.path").value(BASE_URL));
+
+        verify(schoolService).getAllSchools(
+                0,
+                10,
+                "unknownField",
+                "asc",
+                SchoolStatus.ACTIVE,
+                ""
+        );
+    }
+
+    @Test
+    void getAllSchools_whenStatusIsInvalid_returnsBadRequest()
+            throws Exception {
+
+        mockMvc.perform(get(BASE_URL)
+                        .param("page", "0")
+                        .param("size", "10")
+                        .param("sortBy", "name")
+                        .param("direction", "asc")
+                        .param("status", "INVALID"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content()
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.message")
+                        .value("Invalid value for status: INVALID"))
+                .andExpect(jsonPath("$.path").value(BASE_URL));
+
+        verifyNoInteractions(schoolService);
     }
 }
