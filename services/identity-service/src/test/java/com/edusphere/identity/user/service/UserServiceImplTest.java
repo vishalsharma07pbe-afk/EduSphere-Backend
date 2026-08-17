@@ -1,12 +1,18 @@
 package com.edusphere.identity.user.service;
 
 import com.edusphere.identity.common.dto.PageResponse;
+import com.edusphere.identity.roleapproval.entity.RoleAssignmentRequest;
+import com.edusphere.identity.roleapproval.enums.ApprovalStatus;
+import com.edusphere.identity.roleapproval.exception.InvalidRoleRequestException;
+import com.edusphere.identity.roleapproval.mapper.RoleAssignmentRequestMapper;
+import com.edusphere.identity.roleapproval.policy.RoleApprovalPolicy;
+import com.edusphere.identity.roleapproval.repository.RoleAssignmentRequestRepository;
 import com.edusphere.identity.user.dto.*;
 import com.edusphere.identity.user.entity.User;
 import com.edusphere.identity.user.enums.UserRole;
 import com.edusphere.identity.user.enums.UserStatus;
-import com.edusphere.identity.user.exception.DuplicateResourceException;
-import com.edusphere.identity.user.exception.ResourceNotFoundException;
+import com.edusphere.identity.common.exception.DuplicateResourceException;
+import com.edusphere.identity.common.exception.ResourceNotFoundException;
 import com.edusphere.identity.user.mapper.UserMapper;
 import com.edusphere.identity.user.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,6 +24,7 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 import java.util.Optional;
@@ -34,6 +41,12 @@ public class UserServiceImplTest {
     private UserMapper userMapper;
     @Mock
     private PasswordEncoder passwordEncoder;
+    @Mock
+    private RoleApprovalPolicy roleApprovalPolicy;
+    @Mock
+    private RoleAssignmentRequestRepository roleRequestRepository;
+    @Mock
+    private RoleAssignmentRequestMapper roleRequestMapper;
 
     private UserServiceImpl userService;
 
@@ -42,7 +55,10 @@ public class UserServiceImplTest {
         userService = new UserServiceImpl(
                 userRepository,
                 userMapper,
-                passwordEncoder
+                passwordEncoder,
+                roleApprovalPolicy,
+                roleRequestRepository,
+                roleRequestMapper
         );
     }
 
@@ -51,7 +67,11 @@ public class UserServiceImplTest {
         CreateUserRequest request = new CreateUserRequest();
         request.setOrganizationId(1L);
         request.setUsername("teacher01");
+        User creator = user(99L, 1L, "admin01", "admin@edusphere.com");
+        creator.setStatus(UserStatus.ACTIVE);
 
+        when(userRepository.findByOrganizationIdAndId(1L, 99L))
+                .thenReturn(Optional.of(creator));
         when(userRepository.existsByOrganizationIdAndUsername(
                 1L,
                 "teacher01"
@@ -59,7 +79,7 @@ public class UserServiceImplTest {
 
         DuplicateResourceException exception = assertThrows(
                 DuplicateResourceException.class,
-                () -> userService.createUser(request)
+                () -> userService.createUser(1L, 99L, request)
         );
 
         assertEquals(
@@ -82,7 +102,11 @@ public class UserServiceImplTest {
         request.setOrganizationId(1L);
         request.setUsername("teacher01");
         request.setEmail("teacher@edusphere.com");
+        User creator = user(99L, 1L, "admin01", "admin@edusphere.com");
+        creator.setStatus(UserStatus.ACTIVE);
 
+        when(userRepository.findByOrganizationIdAndId(1L, 99L))
+                .thenReturn(Optional.of(creator));
         when(userRepository.existsByOrganizationIdAndUsername(
                 1L,
                 "teacher01"
@@ -95,7 +119,7 @@ public class UserServiceImplTest {
 
         DuplicateResourceException exception = assertThrows(
                 DuplicateResourceException.class,
-                () -> userService.createUser(request)
+                () -> userService.createUser(1L, 99L, request)
         );
 
         assertEquals(
@@ -126,7 +150,10 @@ public class UserServiceImplTest {
         request.setPassword("Teacher@123");
         request.setFirstName("Rahul");
         request.setEmail("rahul@edusphere.com");
+        request.setRoles(Set.of(UserRole.TEACHER));
 
+        User creator = user(99L, 1L, "admin01", "admin@edusphere.com");
+        creator.setStatus(UserStatus.ACTIVE);
         User user = new User();
         user.setOrganizationId(1L);
         user.setUsername("teacher01");
@@ -147,6 +174,8 @@ public class UserServiceImplTest {
         expectedResponse.setFirstName("Rahul");
         expectedResponse.setEmail("rahul@edusphere.com");
 
+        when(userRepository.findByOrganizationIdAndId(1L, 99L))
+                .thenReturn(Optional.of(creator));
         when(userRepository.existsByOrganizationIdAndUsername(
                 1L,
                 "teacher01"
@@ -156,6 +185,10 @@ public class UserServiceImplTest {
                 1L,
                 "rahul@edusphere.com"
         )).thenReturn(false);
+        when(roleApprovalPolicy.getRoutineRoles(Set.of(UserRole.TEACHER)))
+                .thenReturn(Set.of(UserRole.TEACHER));
+        when(roleApprovalPolicy.getSensitiveRoles(Set.of(UserRole.TEACHER)))
+                .thenReturn(Set.of());
 
         when(userMapper.toEntity(request))
                 .thenReturn(user);
@@ -170,7 +203,7 @@ public class UserServiceImplTest {
                 .thenReturn(expectedResponse);
 
         UserResponse actualResponse =
-                userService.createUser(request);
+                userService.createUser(1L, 99L, request);
 
         assertSame(expectedResponse, actualResponse);
 
@@ -200,21 +233,30 @@ public class UserServiceImplTest {
         request.setUsername("teacher01");
         request.setPassword("Teacher@123");
         request.setEmail(" ");
+        request.setRoles(Set.of(UserRole.TEACHER));
 
+        User creator = user(99L, 1L, "admin01", "admin@edusphere.com");
+        creator.setStatus(UserStatus.ACTIVE);
         User user = user(1L, "teacher01", "old@edusphere.com");
         UserResponse expectedResponse = response(10L, 1L, "teacher01");
 
+        when(userRepository.findByOrganizationIdAndId(1L, 99L))
+                .thenReturn(Optional.of(creator));
         when(userRepository.existsByOrganizationIdAndUsername(
                 1L,
                 "teacher01"
         )).thenReturn(false);
+        when(roleApprovalPolicy.getRoutineRoles(Set.of(UserRole.TEACHER)))
+                .thenReturn(Set.of(UserRole.TEACHER));
+        when(roleApprovalPolicy.getSensitiveRoles(Set.of(UserRole.TEACHER)))
+                .thenReturn(Set.of());
         when(userMapper.toEntity(request)).thenReturn(user);
         when(passwordEncoder.encode("Teacher@123"))
                 .thenReturn("encoded-password");
         when(userRepository.save(user)).thenReturn(user);
         when(userMapper.toResponse(user)).thenReturn(expectedResponse);
 
-        UserResponse actualResponse = userService.createUser(request);
+        UserResponse actualResponse = userService.createUser(1L, 99L, request);
 
         assertSame(expectedResponse, actualResponse);
         assertEquals("encoded-password", user.getPasswordHash());
@@ -388,13 +430,18 @@ public class UserServiceImplTest {
     void updateUserRoles_whenUserMissing_throwsResourceNotFoundException() {
         UpdateUserRolesRequest request =
                 new UpdateUserRolesRequest(Set.of(UserRole.ADMIN));
+        User updater = user(99L, 1L, "admin01", "admin@edusphere.com");
+        updater.setRoles(Set.of(UserRole.ADMIN));
+        updater.setStatus(UserStatus.ACTIVE);
 
+        when(userRepository.findByOrganizationIdAndId(1L, 99L))
+                .thenReturn(Optional.of(updater));
         when(userRepository.findByOrganizationIdAndId(1L, 10L))
                 .thenReturn(Optional.empty());
 
         ResourceNotFoundException exception = assertThrows(
                 ResourceNotFoundException.class,
-                () -> userService.updateUserRoles(1L, 10L, request)
+                () -> userService.updateUserRoles(1L, 99L, 10L, request)
         );
 
         assertEquals(
@@ -405,24 +452,249 @@ public class UserServiceImplTest {
     }
 
     @Test
+    void updateUserRoles_whenUpdaterInactive_throwsInvalidRoleRequestException() {
+        UpdateUserRolesRequest request =
+                new UpdateUserRolesRequest(Set.of(UserRole.TEACHER));
+        User updater = user(99L, 1L, "admin01", "admin@edusphere.com");
+        updater.setStatus(UserStatus.SUSPENDED);
+
+        when(userRepository.findByOrganizationIdAndId(1L, 99L))
+                .thenReturn(Optional.of(updater));
+
+        InvalidRoleRequestException exception = assertThrows(
+                InvalidRoleRequestException.class,
+                () -> userService.updateUserRoles(1L, 99L, 10L, request)
+        );
+
+        assertEquals(
+                "Only an active user can update roles",
+                exception.getMessage()
+        );
+        verify(userRepository, never())
+                .findByOrganizationIdAndId(1L, 10L);
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    void updateUserRoles_whenUpdatingOwnRoles_throwsInvalidRoleRequestException() {
+        UpdateUserRolesRequest request =
+                new UpdateUserRolesRequest(Set.of(UserRole.TEACHER));
+        User updater = user(10L, 1L, "admin01", "admin@edusphere.com");
+        updater.setStatus(UserStatus.ACTIVE);
+
+        when(userRepository.findByOrganizationIdAndId(1L, 10L))
+                .thenReturn(Optional.of(updater));
+
+        InvalidRoleRequestException exception = assertThrows(
+                InvalidRoleRequestException.class,
+                () -> userService.updateUserRoles(1L, 10L, 10L, request)
+        );
+
+        assertEquals(
+                "You cannot update your own roles",
+                exception.getMessage()
+        );
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    void updateUserRoles_whenTargetInactive_throwsInvalidRoleRequestException() {
+        UpdateUserRolesRequest request =
+                new UpdateUserRolesRequest(Set.of(UserRole.TEACHER));
+        User updater = user(99L, 1L, "admin01", "admin@edusphere.com");
+        updater.setStatus(UserStatus.ACTIVE);
+        User target = user(10L, 1L, "teacher01", "teacher@edusphere.com");
+        target.setStatus(UserStatus.PENDING_APPROVAL);
+
+        when(userRepository.findByOrganizationIdAndId(1L, 99L))
+                .thenReturn(Optional.of(updater));
+        when(userRepository.findByOrganizationIdAndId(1L, 10L))
+                .thenReturn(Optional.of(target));
+
+        InvalidRoleRequestException exception = assertThrows(
+                InvalidRoleRequestException.class,
+                () -> userService.updateUserRoles(1L, 99L, 10L, request)
+        );
+
+        assertEquals(
+                "Roles can only be updated for an active user",
+                exception.getMessage()
+        );
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    void updateUserRoles_whenOnlyExistingRolesRequested_returnsCurrentUser() {
+        UpdateUserRolesRequest request =
+                new UpdateUserRolesRequest(Set.of(UserRole.TEACHER));
+        User updater = user(99L, 1L, "admin01", "admin@edusphere.com");
+        updater.setStatus(UserStatus.ACTIVE);
+        User target = user(10L, 1L, "teacher01", "teacher@edusphere.com");
+        target.setRoles(Set.of(UserRole.TEACHER));
+        target.setStatus(UserStatus.ACTIVE);
+        UserResponse expectedResponse = response(10L, 1L, "teacher01");
+
+        when(userRepository.findByOrganizationIdAndId(1L, 99L))
+                .thenReturn(Optional.of(updater));
+        when(userRepository.findByOrganizationIdAndId(1L, 10L))
+                .thenReturn(Optional.of(target));
+        when(userMapper.toResponse(target)).thenReturn(expectedResponse);
+
+        UserResponse actualResponse =
+                userService.updateUserRoles(1L, 99L, 10L, request);
+
+        assertSame(expectedResponse, actualResponse);
+        verifyNoInteractions(roleApprovalPolicy);
+        verify(userRepository, never()).save(any(User.class));
+        verify(roleRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void updateUserRoles_whenSensitiveRoleNotAllowed_throwsInvalidRoleRequestException() {
+        UpdateUserRolesRequest request =
+                new UpdateUserRolesRequest(Set.of(UserRole.ADMIN));
+        User updater = user(99L, 1L, "teacher02", "teacher2@edusphere.com");
+        updater.setRoles(Set.of(UserRole.TEACHER));
+        updater.setStatus(UserStatus.ACTIVE);
+        User target = user(10L, 1L, "teacher01", "teacher@edusphere.com");
+        target.setRoles(Set.of(UserRole.TEACHER));
+        target.setStatus(UserStatus.ACTIVE);
+
+        when(userRepository.findByOrganizationIdAndId(1L, 99L))
+                .thenReturn(Optional.of(updater));
+        when(userRepository.findByOrganizationIdAndId(1L, 10L))
+                .thenReturn(Optional.of(target));
+        when(roleApprovalPolicy.getRoutineRoles(Set.of(UserRole.ADMIN)))
+                .thenReturn(Set.of());
+        when(roleApprovalPolicy.getSensitiveRoles(Set.of(UserRole.ADMIN)))
+                .thenReturn(Set.of(UserRole.ADMIN));
+        when(roleApprovalPolicy.canRequestApproval(
+                Set.of(UserRole.TEACHER),
+                UserRole.ADMIN
+        )).thenReturn(false);
+
+        InvalidRoleRequestException exception = assertThrows(
+                InvalidRoleRequestException.class,
+                () -> userService.updateUserRoles(1L, 99L, 10L, request)
+        );
+
+        assertEquals(
+                "You are not allowed to request role: ADMIN",
+                exception.getMessage()
+        );
+        verify(roleRequestRepository, never())
+                .existsByOrganizationIdAndUserIdAndRequestedRoleAndStatus(
+                        anyLong(),
+                        anyLong(),
+                        any(),
+                        any()
+                );
+        verify(userRepository, never()).save(any(User.class));
+        verify(roleRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void updateUserRoles_whenSensitiveRoleAlreadyPending_throwsDuplicateResourceException() {
+        UpdateUserRolesRequest request =
+                new UpdateUserRolesRequest(Set.of(UserRole.ADMIN));
+        User updater = user(99L, 1L, "admin01", "admin@edusphere.com");
+        updater.setRoles(Set.of(UserRole.ADMIN));
+        updater.setStatus(UserStatus.ACTIVE);
+        User target = user(10L, 1L, "teacher01", "teacher@edusphere.com");
+        target.setRoles(Set.of(UserRole.TEACHER));
+        target.setStatus(UserStatus.ACTIVE);
+
+        when(userRepository.findByOrganizationIdAndId(1L, 99L))
+                .thenReturn(Optional.of(updater));
+        when(userRepository.findByOrganizationIdAndId(1L, 10L))
+                .thenReturn(Optional.of(target));
+        when(roleApprovalPolicy.getRoutineRoles(Set.of(UserRole.ADMIN)))
+                .thenReturn(Set.of());
+        when(roleApprovalPolicy.getSensitiveRoles(Set.of(UserRole.ADMIN)))
+                .thenReturn(Set.of(UserRole.ADMIN));
+        when(roleApprovalPolicy.canRequestApproval(
+                Set.of(UserRole.ADMIN),
+                UserRole.ADMIN
+        )).thenReturn(true);
+        when(roleRequestRepository
+                .existsByOrganizationIdAndUserIdAndRequestedRoleAndStatus(
+                        1L,
+                        10L,
+                        UserRole.ADMIN,
+                        ApprovalStatus.PENDING
+                )).thenReturn(true);
+
+        DuplicateResourceException exception = assertThrows(
+                DuplicateResourceException.class,
+                () -> userService.updateUserRoles(1L, 99L, 10L, request)
+        );
+
+        assertEquals(
+                "A pending request already exists for user 10 and role ADMIN",
+                exception.getMessage()
+        );
+        verify(userRepository, never()).save(any(User.class));
+        verify(roleRequestRepository, never()).save(any());
+    }
+
+    @Test
     void updateUserRoles_whenValid_updatesRolesAndReturnsResponse() {
         UpdateUserRolesRequest request =
                 new UpdateUserRolesRequest(Set.of(UserRole.ADMIN,
                         UserRole.TEACHER));
-        User user = user(1L, "teacher01", "teacher@edusphere.com");
+        User updater = user(99L, 1L, "admin01", "admin@edusphere.com");
+        updater.setRoles(Set.of(UserRole.ADMIN));
+        updater.setStatus(UserStatus.ACTIVE);
+        User user = user(10L, 1L, "teacher01", "teacher@edusphere.com");
+        user.setRoles(Set.of());
+        user.setStatus(UserStatus.ACTIVE);
         UserResponse expectedResponse = response(10L, 1L, "teacher01");
+        RoleAssignmentRequest approvalRequest =
+                new RoleAssignmentRequest(
+                        1L,
+                        10L,
+                        UserRole.ADMIN,
+                        99L,
+                        "Role change requested by an authorized user"
+                );
 
+        when(userRepository.findByOrganizationIdAndId(1L, 99L))
+                .thenReturn(Optional.of(updater));
         when(userRepository.findByOrganizationIdAndId(1L, 10L))
                 .thenReturn(Optional.of(user));
+        when(roleApprovalPolicy.getRoutineRoles(Set.of(
+                UserRole.ADMIN,
+                UserRole.TEACHER
+        ))).thenReturn(Set.of(UserRole.TEACHER));
+        when(roleApprovalPolicy.getSensitiveRoles(Set.of(
+                UserRole.ADMIN,
+                UserRole.TEACHER
+        ))).thenReturn(Set.of(UserRole.ADMIN));
+        when(roleApprovalPolicy.canRequestApproval(
+                Set.of(UserRole.ADMIN),
+                UserRole.ADMIN
+        )).thenReturn(true);
+        when(roleRequestRepository
+                .existsByOrganizationIdAndUserIdAndRequestedRoleAndStatus(
+                        1L,
+                        10L,
+                        UserRole.ADMIN,
+                        ApprovalStatus.PENDING
+                )).thenReturn(false);
+        when(roleRequestMapper.toEntity(
+                eq(1L),
+                eq(99L),
+                any()
+        )).thenReturn(approvalRequest);
         when(userRepository.save(user)).thenReturn(user);
         when(userMapper.toResponse(user)).thenReturn(expectedResponse);
 
         UserResponse actualResponse =
-                userService.updateUserRoles(1L, 10L, request);
+                userService.updateUserRoles(1L, 99L, 10L, request);
 
         assertSame(expectedResponse, actualResponse);
-        assertEquals(Set.of(UserRole.ADMIN, UserRole.TEACHER),
-                user.getRoles());
+        assertEquals(Set.of(UserRole.TEACHER), user.getRoles());
+        verify(roleRequestRepository).save(approvalRequest);
         verify(userRepository).save(user);
         verify(userMapper).toResponse(user);
     }
@@ -469,11 +741,13 @@ public class UserServiceImplTest {
     }
 
     private static User user(
+            Long id,
             Long organizationId,
             String username,
             String email
     ) {
         User user = new User();
+        ReflectionTestUtils.setField(user, "id", id);
         user.setOrganizationId(organizationId);
         user.setUsername(username);
         user.setFirstName("Rahul");
@@ -481,6 +755,14 @@ public class UserServiceImplTest {
         user.setRoles(Set.of(UserRole.TEACHER));
         user.setStatus(UserStatus.PENDING_ACTIVATION);
         return user;
+    }
+
+    private static User user(
+            Long organizationId,
+            String username,
+            String email
+    ) {
+        return user(10L, organizationId, username, email);
     }
 
     private static UserResponse response(

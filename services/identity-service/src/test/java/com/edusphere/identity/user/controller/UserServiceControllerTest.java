@@ -4,10 +4,12 @@ import com.edusphere.identity.common.dto.PageResponse;
 import com.edusphere.identity.user.dto.UserResponse;
 import com.edusphere.identity.user.enums.UserRole;
 import com.edusphere.identity.user.enums.UserStatus;
-import com.edusphere.identity.user.exception.DuplicateResourceException;
-import com.edusphere.identity.user.exception.GlobalExceptionHandler;
-import com.edusphere.identity.user.exception.ResourceNotFoundException;
+import com.edusphere.identity.common.exception.GlobalExceptionHandler;
+import com.edusphere.identity.common.exception.DuplicateResourceException;
+import com.edusphere.identity.common.exception.ResourceNotFoundException;
 import com.edusphere.identity.user.service.UserService;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -15,10 +17,15 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.hamcrest.Matchers.containsInAnyOrder;
@@ -47,11 +54,22 @@ public class UserServiceControllerTest {
     @MockitoBean
     private UserService userService;
 
+    @BeforeEach
+    void setUpSecurityContext() {
+        SecurityContextHolder.getContext()
+                .setAuthentication(jwtPrincipal("99"));
+    }
+
+    @AfterEach
+    void clearSecurityContext() {
+        SecurityContextHolder.clearContext();
+    }
+
     @Test
     void createUser_whenValid_returnsCreatedUser() throws Exception {
         UserResponse response = response(10L, 1L, "teacher01");
 
-        when(userService.createUser(any()))
+        when(userService.createUser(eq(1L), eq(99L), any()))
                 .thenReturn(response);
 
         mockMvc.perform(post(BASE_URL, 1L)
@@ -79,7 +97,7 @@ public class UserServiceControllerTest {
                 .andExpect(jsonPath("$.roles[0]").value("TEACHER"))
                 .andExpect(jsonPath("$.status").value("ACTIVE"));
 
-        verify(userService).createUser(any());
+        verify(userService).createUser(eq(1L), eq(99L), any());
     }
 
     @Test
@@ -101,11 +119,11 @@ public class UserServiceControllerTest {
                 .andExpect(jsonPath("$.error").value("Bad Request"))
                 .andExpect(jsonPath("$.message").value(
                         "Organization ID in the URL must match "
-                                + "the organization ID in the request body"))
+                                + "the request body"))
                 .andExpect(jsonPath("$.path").value(
                         "/api/v1/organizations/1/users"));
 
-        verify(userService, never()).createUser(any());
+        verify(userService, never()).createUser(any(), any(), any());
     }
 
     @Test
@@ -137,12 +155,12 @@ public class UserServiceControllerTest {
                 .andExpect(jsonPath("$.validationErrors.roles").value(
                         "At least one role is required"));
 
-        verify(userService, never()).createUser(any());
+        verify(userService, never()).createUser(any(), any(), any());
     }
 
     @Test
     void createUser_whenDuplicateResource_returnsConflict() throws Exception {
-        when(userService.createUser(any()))
+        when(userService.createUser(eq(1L), eq(99L), any()))
                 .thenThrow(new DuplicateResourceException(
                         "Username already exists in this organization: "
                                 + "teacher01"));
@@ -293,7 +311,7 @@ public class UserServiceControllerTest {
         UserResponse response = response(10L, 1L, "teacher01");
         response.setRoles(Set.of(UserRole.ADMIN, UserRole.TEACHER));
 
-        when(userService.updateUserRoles(eq(1L), eq(10L), any()))
+        when(userService.updateUserRoles(eq(1L), eq(99L), eq(10L), any()))
                 .thenReturn(response);
 
         mockMvc.perform(put(BASE_URL + "/{userId}/roles", 1L, 10L)
@@ -308,7 +326,7 @@ public class UserServiceControllerTest {
                 .andExpect(jsonPath("$.roles[*]",
                         containsInAnyOrder("ADMIN", "TEACHER")));
 
-        verify(userService).updateUserRoles(eq(1L), eq(10L), any());
+        verify(userService).updateUserRoles(eq(1L), eq(99L), eq(10L), any());
     }
 
     @Test
@@ -325,7 +343,12 @@ public class UserServiceControllerTest {
                 .andExpect(jsonPath("$.validationErrors.roles").value(
                         "At least one role is required"));
 
-        verify(userService, never()).updateUserRoles(any(), any(), any());
+        verify(userService, never()).updateUserRoles(
+                any(),
+                any(),
+                any(),
+                any()
+        );
     }
 
     @Test
@@ -383,5 +406,16 @@ public class UserServiceControllerTest {
         response.setRoles(Set.of(UserRole.TEACHER));
         response.setStatus(UserStatus.ACTIVE);
         return response;
+    }
+
+    private static JwtAuthenticationToken jwtPrincipal(String subject) {
+        Jwt jwt = new Jwt(
+                "token",
+                Instant.now(),
+                Instant.now().plusSeconds(300),
+                Map.of("alg", "none"),
+                Map.of("sub", subject)
+        );
+        return new JwtAuthenticationToken(jwt);
     }
 }

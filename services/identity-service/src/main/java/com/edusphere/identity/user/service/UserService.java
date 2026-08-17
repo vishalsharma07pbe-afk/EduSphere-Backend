@@ -12,7 +12,11 @@ import org.springframework.data.domain.Pageable;
 
 public interface UserService {
 
-    UserResponse createUser(CreateUserRequest request);
+    UserResponse createUser(
+            Long organizationId,
+            Long createdByUserId,
+            CreateUserRequest request
+    );
 
     UserResponse getUserById(
             Long organizationId,
@@ -32,6 +36,7 @@ public interface UserService {
 
     UserResponse updateUserRoles(
             Long organizationId,
+            Long updatedByUserId,
             Long userId,
             UpdateUserRolesRequest request
     );

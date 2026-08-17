@@ -12,12 +12,14 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 @RestController
-@RequestMapping(
-        "/api/v1/organizations/{organizationId}/users"
-)
+@RequestMapping("/api/v1/organizations/{organizationId}/users")
+@PreAuthorize("@tenantSecurity.canAccessOrganization(authentication, #organizationId)")
 public class UserController {
 
     private final UserService userService;
@@ -27,22 +29,40 @@ public class UserController {
     }
 
     @PostMapping
+    @PreAuthorize("""
+        @tenantSecurity.canAccessOrganization(authentication, #organizationId)
+        and hasAnyRole('ADMIN', 'HR')
+        and @userAuthorization.canCreateUser(authentication, #request.roles)
+        """)
     public ResponseEntity<UserResponse> createUser(
             @PathVariable Long organizationId,
+            @AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody CreateUserRequest request
     ) {
         if (!organizationId.equals(request.getOrganizationId())) {
             throw new IllegalArgumentException(
-                    "Organization ID in the URL must match "
-                            + "the organization ID in the request body"
+                    "Organization ID in the URL must match the request body"
             );
         }
-        UserResponse response = userService.createUser(request);
+
+        // The JWT subject contains the authenticated creator's database user ID.
+        Long createdByUserId = Long.valueOf(jwt.getSubject());
+
+        UserResponse response = userService.createUser(
+                organizationId,
+                createdByUserId,
+                request
+        );
+
         return ResponseEntity
                 .status(HttpStatus.CREATED)
                 .body(response);
     }
 
+    @PreAuthorize(
+            "@tenantSecurity.isCurrentUser(authentication, #userId)"
+                    + " or hasAnyRole('ADMIN', 'PRINCIPAL', 'HR')"
+    )
     @GetMapping("/{userId}")
     public ResponseEntity<UserResponse> getUserById(
             @PathVariable Long organizationId,
@@ -89,18 +109,25 @@ public class UserController {
     }
 
     @PutMapping("/{userId}/roles")
+    @PreAuthorize("""
+        @tenantSecurity.canAccessOrganization(authentication, #organizationId)
+        and hasAnyRole('ADMIN', 'HR')
+        """)
     public ResponseEntity<UserResponse> updateUserRoles(
             @PathVariable Long organizationId,
             @PathVariable Long userId,
-            @Valid @RequestBody
-            UpdateUserRolesRequest request
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody UpdateUserRolesRequest request
     ) {
-        UserResponse response =
-                userService.updateUserRoles(
-                        organizationId,
-                        userId,
-                        request
-                );
+        // Identify the authenticated person performing the role update.
+        Long updatedByUserId = Long.valueOf(jwt.getSubject());
+
+        UserResponse response = userService.updateUserRoles(
+                organizationId,
+                updatedByUserId,
+                userId,
+                request
+        );
 
         return ResponseEntity.ok(response);
     }

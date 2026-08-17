@@ -1,4 +1,4 @@
-package com.edusphere.identity.user.exception;
+package com.edusphere.identity.common.exception;
 
 public class ResourceNotFoundException extends RuntimeException {
     public ResourceNotFoundException(String message) {

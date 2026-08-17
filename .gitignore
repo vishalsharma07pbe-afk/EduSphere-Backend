@@ -22,3 +22,5 @@ application-local.yaml
 # Application logs
 logs/
 *.log
+
+services/identity-service/src/main/resources/keys/private.pem

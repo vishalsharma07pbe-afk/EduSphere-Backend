@@ -1,4 +1,4 @@
-package com.edusphere.identity.user.exception;
+package com.edusphere.identity.common.exception;
 
 import java.time.OffsetDateTime;
 import java.util.Map;
