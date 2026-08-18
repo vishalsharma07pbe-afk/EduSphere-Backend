@@ -146,6 +146,7 @@ public class RoleAssignmentApprovalServiceImpl
                         "You are not authorized to review this role request"
                 ));
 
+        // Store the approver role that satisfied this approval requirement.
         RoleAssignmentApproval approval =
                 approvalMapper.toEntity(
                         roleRequest.getId(),
@@ -205,6 +206,7 @@ public class RoleAssignmentApprovalServiceImpl
 
             roleRequest.approve();
 
+            // New sensitive-role users can activate only after approvals finish.
             updateOnboardingStatusIfComplete(
                     organizationId,
                     roleRequest

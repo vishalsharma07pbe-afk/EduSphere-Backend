@@ -1,6 +1,7 @@
 package com.edusphere.identity.auth.service;
 
 import com.edusphere.identity.auth.dto.LoginRequest;
+import com.edusphere.identity.auth.dto.ChangePasswordRequest;
 import com.edusphere.identity.auth.model.AuthenticationResult;
 
 public interface AuthService {
@@ -15,5 +16,10 @@ public interface AuthService {
 
     void logout(
             String rawRefreshToken
+    );
+
+    void changePassword(
+            Long userId,
+            ChangePasswordRequest request
     );
 }

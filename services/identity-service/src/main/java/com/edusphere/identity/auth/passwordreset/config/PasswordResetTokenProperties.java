@@ -9,11 +9,10 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "security.password-reset-token")
 public class PasswordResetTokenProperties {
 
-    private Duration expiration = Duration.ofHours(1);
-    private Duration requestWindow = Duration.ofHours(24);
-    private Duration resetWindow = Duration.ofHours(24);
-    private int maxEmailsPerWindow = 3;
-    private int maxResetsPerWindow = 1;
+    // Email request throttling limits abuse while valid reset tokens stay usable.
+    private Duration expiration;
+    private Duration requestWindow;
+    private Integer maxEmailsPerWindow;
 
     public Duration getExpiration() {
         return expiration;
@@ -35,23 +34,8 @@ public class PasswordResetTokenProperties {
         return maxEmailsPerWindow;
     }
 
-    public void setMaxEmailsPerWindow(int maxEmailsPerWindow) {
+    public void setMaxEmailsPerWindow(Integer maxEmailsPerWindow) {
         this.maxEmailsPerWindow = maxEmailsPerWindow;
     }
 
-    public Duration getResetWindow() {
-        return resetWindow;
-    }
-
-    public void setResetWindow(Duration resetWindow) {
-        this.resetWindow = resetWindow;
-    }
-
-    public int getMaxResetsPerWindow() {
-        return maxResetsPerWindow;
-    }
-
-    public void setMaxResetsPerWindow(int maxResetsPerWindow) {
-        this.maxResetsPerWindow = maxResetsPerWindow;
-    }
 }

@@ -4,6 +4,8 @@ import com.edusphere.identity.auth.refreshtoken.config.RefreshTokenProperties;
 import com.edusphere.identity.auth.refreshtoken.entity.RefreshToken;
 import com.edusphere.identity.auth.refreshtoken.exception.InvalidRefreshTokenException;
 import com.edusphere.identity.auth.refreshtoken.model.RefreshTokenRotationResult;
+import com.edusphere.identity.auth.refreshtoken.model.RefreshTokenSessionLifetime;
+import com.edusphere.identity.auth.refreshtoken.policy.RefreshTokenSessionLifetimePolicy;
 import com.edusphere.identity.auth.refreshtoken.repository.RefreshTokenRepository;
 import com.edusphere.identity.auth.refreshtoken.security.RefreshTokenCodec;
 import com.edusphere.identity.common.exception.ResourceNotFoundException;
@@ -27,23 +29,27 @@ public class RefreshTokenServiceImpl
     private final RefreshTokenRepository refreshTokenRepository;
     private final RefreshTokenCodec tokenCodec;
     private final RefreshTokenProperties tokenProperties;
+    private final RefreshTokenSessionLifetimePolicy sessionLifetimePolicy;
     private final UserRepository userRepository;
 
     public RefreshTokenServiceImpl(
             RefreshTokenRepository refreshTokenRepository,
             RefreshTokenCodec tokenCodec,
             RefreshTokenProperties tokenProperties,
+            RefreshTokenSessionLifetimePolicy sessionLifetimePolicy,
             UserRepository userRepository
     ) {
         this.refreshTokenRepository = refreshTokenRepository;
         this.tokenCodec = tokenCodec;
         this.tokenProperties = tokenProperties;
+        this.sessionLifetimePolicy = sessionLifetimePolicy;
         this.userRepository = userRepository;
     }
 
     @Override
     @Transactional
     public String createRefreshToken(Long userId) {
+        // Refresh sessions are issued only for currently active users.
         User user = userRepository
                 .findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException(
@@ -57,17 +63,20 @@ public class RefreshTokenServiceImpl
         String rawToken = tokenCodec.generateRawToken();
         String tokenHash = tokenCodec.hash(rawToken);
         OffsetDateTime currentTime = OffsetDateTime.now();
+        RefreshTokenSessionLifetime sessionLifetime =
+                sessionLifetimePolicy.lifetimeFor(user);
         OffsetDateTime familyExpiresAt = currentTime.plus(
-                tokenProperties.getAbsoluteSessionLifetime()
+                sessionLifetime.absoluteSessionLifetime()
         );
 
+        // Store only the token hash; the raw token is returned for the secure cookie.
         RefreshToken refreshToken =
                 new RefreshToken(
                         userId,
                         UUID.randomUUID(),
                         tokenHash,
                         currentTime.plus(
-                                tokenProperties.getExpiration()
+                                sessionLifetime.inactivityExpiration()
                         ),
                         familyExpiresAt
                 );
@@ -101,6 +110,7 @@ public class RefreshTokenServiceImpl
         OffsetDateTime currentTime = OffsetDateTime.now();
 
         if (existingToken.isRevoked()) {
+            // Reuse of a rotated token indicates theft, so revoke the family.
             if (existingToken.getReplacedByTokenHash()
                     != null) {
                 revokeTokenFamily(
@@ -113,11 +123,13 @@ public class RefreshTokenServiceImpl
         }
 
         if (existingToken.isExpired(currentTime)) {
+            // Expired individual tokens cannot be rotated.
             existingToken.revoke(currentTime);
             throw invalidToken();
         }
 
         if (existingToken.isFamilyExpired(currentTime)) {
+            // Absolute session lifetime ends the whole token family.
             revokeTokenFamily(
                     existingToken.getTokenFamilyId(),
                     currentTime
@@ -131,6 +143,7 @@ public class RefreshTokenServiceImpl
                 .orElseThrow(this::invalidToken);
 
         if (user.getStatus() != UserStatus.ACTIVE) {
+            // Status changes invalidate the whole session family.
             revokeTokenFamily(
                     existingToken.getTokenFamilyId(),
                     currentTime
@@ -147,9 +160,14 @@ public class RefreshTokenServiceImpl
 
         OffsetDateTime familyExpiresAt =
                 existingToken.getFamilyExpiresAt();
+        RefreshTokenSessionLifetime sessionLifetime =
+                sessionLifetimePolicy.lifetimeFor(user);
 
+        // Replacement tokens preserve the original absolute family expiry.
         OffsetDateTime rollingExpiry =
-                currentTime.plus(tokenProperties.getExpiration());
+                currentTime.plus(
+                        sessionLifetime.inactivityExpiration()
+                );
 
         OffsetDateTime effectiveExpiry =
                 rollingExpiry.isBefore(familyExpiresAt)
@@ -183,6 +201,7 @@ public class RefreshTokenServiceImpl
     public void revokeRefreshToken(
             String rawRefreshToken
     ) {
+        // Logout is idempotent; missing or malformed cookies are ignored.
         if (rawRefreshToken == null
                 || rawRefreshToken.isBlank()) {
             return;
@@ -206,6 +225,7 @@ public class RefreshTokenServiceImpl
     @Override
     @Transactional
     public void revokeAllForUser(Long userId) {
+        // Used after password changes and account suspension/inactivation.
         List<RefreshToken> activeTokens =
                 refreshTokenRepository
                         .findAllByUserIdAndRevokedAtIsNull(

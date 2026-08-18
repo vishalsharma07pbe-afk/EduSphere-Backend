@@ -47,6 +47,19 @@ security:
   refresh-token:
     expiration: 30d
     absolute-session-lifetime: 90d
+    short-session-roles:
+      - ADMIN
+      - PRINCIPAL
+      - HR
+      - ACCOUNTANT
+    short-session-expiration: 7d
+    short-session-absolute-lifetime: 30d
+    standard-session-roles:
+      - TEACHER
+      - STUDENT
+      - PARENT
+    standard-session-expiration: 30d
+    standard-session-absolute-lifetime: 90d
     cookie-name: edusphere_refresh
     cookie-path: /api/v1/auth
     secure: ${REFRESH_COOKIE_SECURE:false}
@@ -56,8 +69,8 @@ security:
     expiration: 1h
     request-window: 24h
     max-emails-per-window: 3
-    reset-window: 24h
-    max-resets-per-window: 1
+  password-change:
+    cooldown: 24h
   login-lockout:
     first-failure-threshold: 5
     escalated-failure-threshold: 3

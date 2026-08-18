@@ -352,7 +352,7 @@ public class UserServiceControllerTest {
         UserResponse response = response(10L, 1L, "teacher01");
         response.setStatus(UserStatus.SUSPENDED);
 
-        when(userService.updateUserStatus(eq(1L), eq(10L), any()))
+        when(userService.updateUserStatus(eq(1L), eq(99L), eq(10L), any()))
                 .thenReturn(response);
 
         mockMvc.perform(put(BASE_URL + "/{userId}/status", 1L, 10L)
@@ -366,7 +366,12 @@ public class UserServiceControllerTest {
                 .andExpect(jsonPath("$.id").value(10))
                 .andExpect(jsonPath("$.status").value("SUSPENDED"));
 
-        verify(userService).updateUserStatus(eq(1L), eq(10L), any());
+        verify(userService).updateUserStatus(
+                eq(1L),
+                eq(99L),
+                eq(10L),
+                any()
+        );
     }
 
     @Test
@@ -383,7 +388,12 @@ public class UserServiceControllerTest {
                 .andExpect(jsonPath("$.validationErrors.status").value(
                         "User status is required"));
 
-        verify(userService, never()).updateUserStatus(any(), any(), any());
+        verify(userService, never()).updateUserStatus(
+                any(),
+                any(),
+                any(),
+                any()
+        );
     }
 
     private static UserResponse response(

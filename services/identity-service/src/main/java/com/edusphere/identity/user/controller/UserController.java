@@ -133,15 +133,24 @@ public class UserController {
     }
 
     @PutMapping("/{userId}/status")
+    @PreAuthorize("""
+        @tenantSecurity.canAccessOrganization(authentication, #organizationId)
+        and hasAnyRole('ADMIN', 'PRINCIPAL', 'HR')
+        """)
     public ResponseEntity<UserResponse> updateUserStatus(
             @PathVariable Long organizationId,
             @PathVariable Long userId,
+            @AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody
             UpdateUserStatusRequest request
     ) {
+        Long updatedByUserId =
+                Long.valueOf(jwt.getSubject());
+
         UserResponse response =
                 userService.updateUserStatus(
                         organizationId,
+                        updatedByUserId,
                         userId,
                         request
                 );

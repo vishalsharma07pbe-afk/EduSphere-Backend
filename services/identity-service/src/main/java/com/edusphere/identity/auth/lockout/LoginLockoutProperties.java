@@ -9,20 +9,20 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "security.login-lockout")
 public class LoginLockoutProperties {
 
-    private int firstFailureThreshold = 5;
-    private int escalatedFailureThreshold = 3;
-    private Duration firstLockDuration = Duration.ofMinutes(30);
-    private Duration secondLockDuration = Duration.ofDays(30);
-    private Duration finalLockDuration = Duration.ofDays(365);
-    private String lockedMessagePrefix = "Account is locked until ";
-    private String lockedMessageSuffix =
-            ". Please contact an admin to unlock sooner.";
+    // Values are configured externally so lockout rules stay operationally adjustable.
+    private Integer firstFailureThreshold;
+    private Integer escalatedFailureThreshold;
+    private Duration firstLockDuration;
+    private Duration secondLockDuration;
+    private Duration finalLockDuration;
+    private String lockedMessagePrefix;
+    private String lockedMessageSuffix;
 
     public int getFirstFailureThreshold() {
         return firstFailureThreshold;
     }
 
-    public void setFirstFailureThreshold(int firstFailureThreshold) {
+    public void setFirstFailureThreshold(Integer firstFailureThreshold) {
         this.firstFailureThreshold = firstFailureThreshold;
     }
 
@@ -31,7 +31,7 @@ public class LoginLockoutProperties {
     }
 
     public void setEscalatedFailureThreshold(
-            int escalatedFailureThreshold
+            Integer escalatedFailureThreshold
     ) {
         this.escalatedFailureThreshold = escalatedFailureThreshold;
     }

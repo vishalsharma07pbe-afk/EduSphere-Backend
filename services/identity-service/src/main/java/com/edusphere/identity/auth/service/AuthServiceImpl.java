@@ -1,9 +1,13 @@
 package com.edusphere.identity.auth.service;
 
+import com.edusphere.identity.auth.config.PasswordChangeProperties;
+import com.edusphere.identity.auth.dto.ChangePasswordRequest;
 import com.edusphere.identity.auth.dto.LoginRequest;
 import com.edusphere.identity.auth.dto.LoginResponse;
+import com.edusphere.identity.auth.activation.exception.PasswordMismatchException;
 import com.edusphere.identity.auth.exception.AccountNotActiveException;
 import com.edusphere.identity.auth.exception.InvalidCredentialsException;
+import com.edusphere.identity.auth.exception.PasswordChangeNotAllowedException;
 import com.edusphere.identity.auth.lockout.LoginLockoutService;
 import com.edusphere.identity.auth.model.AuthenticationResult;
 import com.edusphere.identity.auth.refreshtoken.model.RefreshTokenRotationResult;
@@ -32,19 +36,22 @@ public class AuthServiceImpl implements AuthService {
     private final JwtService jwtService;
     private final RefreshTokenService refreshTokenService;
     private final LoginLockoutService loginLockoutService;
+    private final PasswordChangeProperties passwordChangeProperties;
 
     public AuthServiceImpl(
             UserRepository userRepository,
             PasswordEncoder passwordEncoder,
             JwtService jwtService,
             RefreshTokenService refreshTokenService,
-            LoginLockoutService loginLockoutService
+            LoginLockoutService loginLockoutService,
+            PasswordChangeProperties passwordChangeProperties
     ) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.refreshTokenService = refreshTokenService;
         this.loginLockoutService = loginLockoutService;
+        this.passwordChangeProperties = passwordChangeProperties;
     }
 
     @Override
@@ -52,6 +59,7 @@ public class AuthServiceImpl implements AuthService {
     public AuthenticationResult login(
             LoginRequest request
     ) {
+        // Use one generic error so login cannot reveal valid usernames.
         User user = userRepository
                 .findByOrganizationIdAndUsername(
                         request.getOrganizationId(),
@@ -63,6 +71,7 @@ public class AuthServiceImpl implements AuthService {
 
         OffsetDateTime currentTime = OffsetDateTime.now();
 
+        // Lockout is checked before password work to block locked accounts fast.
         loginLockoutService.checkLoginAllowed(user, currentTime);
 
         boolean passwordMatches =
@@ -73,6 +82,7 @@ public class AuthServiceImpl implements AuthService {
                 );
 
         if (!passwordMatches) {
+            // Failed attempts are counted even though the public error is generic.
             loginLockoutService.recordFailedLogin(user, currentTime);
         }
 
@@ -85,6 +95,7 @@ public class AuthServiceImpl implements AuthService {
         loginLockoutService.recordSuccessfulLogin(user);
         user.setLastLoginAt(currentTime);
 
+        // Refresh tokens are persisted separately and returned only as cookies.
         String rawRefreshToken =
                 refreshTokenService.createRefreshToken(
                         user.getId()
@@ -101,6 +112,7 @@ public class AuthServiceImpl implements AuthService {
     public AuthenticationResult refresh(
             String rawRefreshToken
     ) {
+        // Rotation invalidates the submitted refresh token on every use.
         RefreshTokenRotationResult rotationResult =
                 refreshTokenService.rotateRefreshToken(
                         rawRefreshToken
@@ -113,6 +125,7 @@ public class AuthServiceImpl implements AuthService {
                 ));
 
         if (user.getStatus() != UserStatus.ACTIVE) {
+            // Inactive users lose all sessions, including other devices.
             refreshTokenService.revokeAllForUser(
                     user.getId()
             );
@@ -134,6 +147,75 @@ public class AuthServiceImpl implements AuthService {
         refreshTokenService.revokeRefreshToken(
                 rawRefreshToken
         );
+    }
+
+    @Override
+    @Transactional
+    public void changePassword(
+            Long userId,
+            ChangePasswordRequest request
+    ) {
+        if (!request.getNewPassword().equals(request.getConfirmPassword())) {
+            // Confirmation is checked here because it compares two fields.
+            throw new PasswordMismatchException(
+                    "Password and confirmation do not match"
+            );
+        }
+
+        User user = userRepository
+                .findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "User not found"
+                ));
+
+        if (user.getStatus() != UserStatus.ACTIVE) {
+            throw new AccountNotActiveException(
+                    "Account is not active"
+            );
+        }
+
+        boolean currentPasswordMatches =
+                user.getPasswordHash() != null
+                        && passwordEncoder.matches(
+                        request.getCurrentPassword(),
+                        user.getPasswordHash()
+                );
+
+        if (!currentPasswordMatches) {
+            // Authenticated password changes still require password proof.
+            throw new InvalidCredentialsException(
+                    "Current password is incorrect"
+            );
+        }
+
+        enforcePasswordChangeCooldown(user);
+
+        user.resetPassword(
+                passwordEncoder.encode(request.getNewPassword())
+        );
+
+        // Password changes invalidate stolen or unattended sessions.
+        refreshTokenService.revokeAllForUser(user.getId());
+    }
+
+    private void enforcePasswordChangeCooldown(User user) {
+        // Cooldown applies only to ordinary logged-in password changes.
+        if (user.getPasswordChangedAt() == null
+                || passwordChangeProperties.getCooldown() == null
+                || passwordChangeProperties.getCooldown().isZero()
+                || passwordChangeProperties.getCooldown().isNegative()) {
+            return;
+        }
+
+        OffsetDateTime allowedAt =
+                user.getPasswordChangedAt()
+                        .plus(passwordChangeProperties.getCooldown());
+
+        if (allowedAt.isAfter(OffsetDateTime.now())) {
+            throw new PasswordChangeNotAllowedException(
+                    "Password can be changed again after " + allowedAt
+            );
+        }
     }
 
     private AuthenticationResult createAuthenticationResult(

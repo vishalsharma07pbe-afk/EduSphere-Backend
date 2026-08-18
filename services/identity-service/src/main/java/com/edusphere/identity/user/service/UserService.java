@@ -43,6 +43,7 @@ public interface UserService {
 
     UserResponse updateUserStatus(
             Long organizationId,
+            Long updatedByUserId,
             Long userId,
             UpdateUserStatusRequest request
     );

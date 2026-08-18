@@ -2,8 +2,10 @@ package com.edusphere.identity.user.service;
 
 import com.edusphere.identity.common.dto.PageResponse;
 import com.edusphere.identity.auth.activation.event.UserActivationRequestedEvent;
+import com.edusphere.identity.auth.refreshtoken.service.RefreshTokenService;
 import com.edusphere.identity.roleapproval.entity.RoleAssignmentRequest;
 import com.edusphere.identity.roleapproval.enums.ApprovalStatus;
+import com.edusphere.identity.roleapproval.exception.ApprovalNotAllowedException;
 import com.edusphere.identity.roleapproval.exception.InvalidRoleRequestException;
 import com.edusphere.identity.roleapproval.mapper.RoleAssignmentRequestMapper;
 import com.edusphere.identity.roleapproval.policy.RoleApprovalPolicy;
@@ -14,7 +16,9 @@ import com.edusphere.identity.user.enums.UserRole;
 import com.edusphere.identity.user.enums.UserStatus;
 import com.edusphere.identity.common.exception.DuplicateResourceException;
 import com.edusphere.identity.common.exception.ResourceNotFoundException;
+import com.edusphere.identity.user.exception.InvalidUserStatusTransitionException;
 import com.edusphere.identity.user.mapper.UserMapper;
+import com.edusphere.identity.user.policy.UserStatusTransitionPolicy;
 import com.edusphere.identity.user.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -48,6 +52,10 @@ public class UserServiceImplTest {
     private RoleAssignmentRequestMapper roleRequestMapper;
     @Mock
     private ApplicationEventPublisher eventPublisher;
+    @Mock
+    private UserStatusTransitionPolicy statusTransitionPolicy;
+    @Mock
+    private RefreshTokenService refreshTokenService;
 
     private UserServiceImpl userService;
 
@@ -59,7 +67,9 @@ public class UserServiceImplTest {
                 roleApprovalPolicy,
                 roleRequestRepository,
                 roleRequestMapper,
-                eventPublisher
+                eventPublisher,
+                statusTransitionPolicy,
+                refreshTokenService
         );
     }
 
@@ -422,28 +432,28 @@ public class UserServiceImplTest {
     }
 
     @Test
-    void updateUserStatus_whenSettingActive_clearsLoginLock() {
+    void updateUserStatus_whenUpdaterInactive_throwsApprovalNotAllowedException() {
         UpdateUserStatusRequest request =
-                new UpdateUserStatusRequest(UserStatus.ACTIVE);
-        User user = user(1L, "teacher01", "teacher@edusphere.com");
-        user.setStatus(UserStatus.ACTIVE);
-        user.setFailedLoginAttempts(2);
-        user.setLockedUntil(java.time.OffsetDateTime.now().plusYears(1));
-        ReflectionTestUtils.setField(user, "loginLockLevel", 3);
-        UserResponse expectedResponse = response(10L, 1L, "teacher01");
+                new UpdateUserStatusRequest(UserStatus.SUSPENDED);
+        User updater = user(99L, 1L, "admin01", "admin@edusphere.com");
+        updater.setRoles(Set.of(UserRole.ADMIN));
+        updater.setStatus(UserStatus.SUSPENDED);
 
-        when(userRepository.findByOrganizationIdAndId(1L, 10L))
-                .thenReturn(Optional.of(user));
-        when(userRepository.save(user)).thenReturn(user);
-        when(userMapper.toResponse(user)).thenReturn(expectedResponse);
+        when(userRepository.findByOrganizationIdAndId(1L, 99L))
+                .thenReturn(Optional.of(updater));
 
-        UserResponse actualResponse =
-                userService.updateUserStatus(1L, 10L, request);
+        ApprovalNotAllowedException exception = assertThrows(
+                ApprovalNotAllowedException.class,
+                () -> userService.updateUserStatus(1L, 99L, 10L, request)
+        );
 
-        assertSame(expectedResponse, actualResponse);
-        assertEquals(0, user.getFailedLoginAttempts());
-        assertEquals(0, user.getLoginLockLevel());
-        assertNull(user.getLockedUntil());
+        assertEquals(
+                "Only an active user can update account status",
+                exception.getMessage()
+        );
+        verify(userRepository, never())
+                .findByOrganizationIdAndId(1L, 10L);
+        verify(userRepository, never()).save(any(User.class));
     }
 
     @Test
@@ -723,13 +733,18 @@ public class UserServiceImplTest {
     void updateUserStatus_whenUserMissing_throwsResourceNotFoundException() {
         UpdateUserStatusRequest request =
                 new UpdateUserStatusRequest(UserStatus.ACTIVE);
+        User updater = user(99L, 1L, "admin01", "admin@edusphere.com");
+        updater.setRoles(Set.of(UserRole.ADMIN));
+        updater.setStatus(UserStatus.ACTIVE);
 
+        when(userRepository.findByOrganizationIdAndId(1L, 99L))
+                .thenReturn(Optional.of(updater));
         when(userRepository.findByOrganizationIdAndId(1L, 10L))
                 .thenReturn(Optional.empty());
 
         ResourceNotFoundException exception = assertThrows(
                 ResourceNotFoundException.class,
-                () -> userService.updateUserStatus(1L, 10L, request)
+                () -> userService.updateUserStatus(1L, 99L, 10L, request)
         );
 
         assertEquals(
@@ -740,24 +755,97 @@ public class UserServiceImplTest {
     }
 
     @Test
-    void updateUserStatus_whenValid_updatesStatusAndReturnsResponse() {
+    void updateUserStatus_whenTransitionInvalid_throwsInvalidUserStatusTransitionException() {
         UpdateUserStatusRequest request =
                 new UpdateUserStatusRequest(UserStatus.ACTIVE);
-        User user = user(1L, "teacher01", "teacher@edusphere.com");
+        User updater = user(99L, 1L, "admin01", "admin@edusphere.com");
+        updater.setRoles(Set.of(UserRole.ADMIN));
+        updater.setStatus(UserStatus.ACTIVE);
+        User target = user(10L, 1L, "teacher01", "teacher@edusphere.com");
+        target.setStatus(UserStatus.PENDING_ACTIVATION);
+
+        when(userRepository.findByOrganizationIdAndId(1L, 99L))
+                .thenReturn(Optional.of(updater));
+        when(userRepository.findByOrganizationIdAndId(1L, 10L))
+                .thenReturn(Optional.of(target));
+        when(statusTransitionPolicy.canTransitionAdministratively(
+                UserStatus.PENDING_ACTIVATION,
+                UserStatus.ACTIVE
+        )).thenReturn(false);
+
+        InvalidUserStatusTransitionException exception = assertThrows(
+                InvalidUserStatusTransitionException.class,
+                () -> userService.updateUserStatus(1L, 99L, 10L, request)
+        );
+
+        assertEquals(
+                "Status transition from PENDING_ACTIVATION to ACTIVE "
+                        + "is not allowed",
+                exception.getMessage()
+        );
+        verify(userRepository, never()).save(any(User.class));
+        verify(refreshTokenService, never()).revokeAllForUser(anyLong());
+    }
+
+    @Test
+    void updateUserStatus_whenStatusUnchanged_returnsCurrentUser() {
+        UpdateUserStatusRequest request =
+                new UpdateUserStatusRequest(UserStatus.ACTIVE);
+        User updater = user(99L, 1L, "admin01", "admin@edusphere.com");
+        updater.setRoles(Set.of(UserRole.ADMIN));
+        updater.setStatus(UserStatus.ACTIVE);
+        User target = user(10L, 1L, "teacher01", "teacher@edusphere.com");
+        target.setStatus(UserStatus.ACTIVE);
         UserResponse expectedResponse = response(10L, 1L, "teacher01");
 
+        when(userRepository.findByOrganizationIdAndId(1L, 99L))
+                .thenReturn(Optional.of(updater));
         when(userRepository.findByOrganizationIdAndId(1L, 10L))
-                .thenReturn(Optional.of(user));
-        when(userRepository.save(user)).thenReturn(user);
-        when(userMapper.toResponse(user)).thenReturn(expectedResponse);
+                .thenReturn(Optional.of(target));
+        when(statusTransitionPolicy.canTransitionAdministratively(
+                UserStatus.ACTIVE,
+                UserStatus.ACTIVE
+        )).thenReturn(true);
+        when(userMapper.toResponse(target)).thenReturn(expectedResponse);
 
         UserResponse actualResponse =
-                userService.updateUserStatus(1L, 10L, request);
+                userService.updateUserStatus(1L, 99L, 10L, request);
 
         assertSame(expectedResponse, actualResponse);
-        assertEquals(UserStatus.ACTIVE, user.getStatus());
-        verify(userRepository).save(user);
-        verify(userMapper).toResponse(user);
+        verify(userRepository, never()).save(any(User.class));
+        verify(refreshTokenService, never()).revokeAllForUser(anyLong());
+    }
+
+    @Test
+    void updateUserStatus_whenSuspendingUser_revokesRefreshTokens() {
+        UpdateUserStatusRequest request =
+                new UpdateUserStatusRequest(UserStatus.SUSPENDED);
+        User updater = user(99L, 1L, "admin01", "admin@edusphere.com");
+        updater.setRoles(Set.of(UserRole.ADMIN));
+        updater.setStatus(UserStatus.ACTIVE);
+        User target = user(10L, 1L, "teacher01", "teacher@edusphere.com");
+        target.setStatus(UserStatus.ACTIVE);
+        UserResponse expectedResponse = response(10L, 1L, "teacher01");
+
+        when(userRepository.findByOrganizationIdAndId(1L, 99L))
+                .thenReturn(Optional.of(updater));
+        when(userRepository.findByOrganizationIdAndId(1L, 10L))
+                .thenReturn(Optional.of(target));
+        when(statusTransitionPolicy.canTransitionAdministratively(
+                UserStatus.ACTIVE,
+                UserStatus.SUSPENDED
+        )).thenReturn(true);
+        when(userRepository.save(target)).thenReturn(target);
+        when(userMapper.toResponse(target)).thenReturn(expectedResponse);
+
+        UserResponse actualResponse =
+                userService.updateUserStatus(1L, 99L, 10L, request);
+
+        assertSame(expectedResponse, actualResponse);
+        assertEquals(UserStatus.SUSPENDED, target.getStatus());
+        verify(userRepository).save(target);
+        verify(refreshTokenService).revokeAllForUser(10L);
+        verify(userMapper).toResponse(target);
     }
 
     private static User user(

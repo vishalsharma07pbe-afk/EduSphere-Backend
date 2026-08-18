@@ -3,8 +3,10 @@ package com.edusphere.identity.common.exception;
 import com.edusphere.identity.auth.exception.AccountLockedException;
 import com.edusphere.identity.auth.exception.AccountNotActiveException;
 import com.edusphere.identity.auth.exception.InvalidCredentialsException;
+import com.edusphere.identity.auth.exception.PasswordChangeNotAllowedException;
 import com.edusphere.identity.roleapproval.exception.ApprovalNotAllowedException;
 import com.edusphere.identity.roleapproval.exception.InvalidApprovalStateException;
+import com.edusphere.identity.user.exception.InvalidUserStatusTransitionException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -256,6 +258,41 @@ public class GlobalExceptionHandler {
 
         return ResponseEntity
                 .status(HttpStatus.UNAUTHORIZED)
+                .body(response);
+    }
+
+    @ExceptionHandler(PasswordChangeNotAllowedException.class)
+    public ResponseEntity<ApiErrorResponse> handlePasswordChangeNotAllowed(
+            PasswordChangeNotAllowedException exception,
+            HttpServletRequest request
+    ) {
+        ApiErrorResponse response = createErrorResponse(
+                HttpStatus.CONFLICT,
+                exception.getMessage(),
+                request.getRequestURI(),
+                null
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(response);
+    }
+
+    @ExceptionHandler(InvalidUserStatusTransitionException.class)
+    public ResponseEntity<ApiErrorResponse>
+    handleInvalidUserStatusTransition(
+            InvalidUserStatusTransitionException exception,
+            HttpServletRequest request
+    ) {
+        ApiErrorResponse response = createErrorResponse(
+                HttpStatus.CONFLICT,
+                exception.getMessage(),
+                request.getRequestURI(),
+                null
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
                 .body(response);
     }
 

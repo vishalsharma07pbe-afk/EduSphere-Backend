@@ -9,9 +9,10 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "security.activation-token")
 public class ActivationTokenProperties {
 
-    private Duration expiration = Duration.ofHours(24);
-    private Duration resendWindow = Duration.ofHours(24);
-    private int maxEmailsPerWindow = 3;
+    // Values are configured externally to keep resend limits deploy-time adjustable.
+    private Duration expiration;
+    private Duration resendWindow;
+    private Integer maxEmailsPerWindow;
 
     public Duration getExpiration() {
         return expiration;
@@ -34,7 +35,7 @@ public class ActivationTokenProperties {
     }
 
     public void setMaxEmailsPerWindow(
-            int maxEmailsPerWindow
+            Integer maxEmailsPerWindow
     ) {
         this.maxEmailsPerWindow = maxEmailsPerWindow;
     }

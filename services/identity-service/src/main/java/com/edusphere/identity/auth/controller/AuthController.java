@@ -1,5 +1,6 @@
 package com.edusphere.identity.auth.controller;
 
+import com.edusphere.identity.auth.dto.ChangePasswordRequest;
 import com.edusphere.identity.auth.dto.LoginRequest;
 import com.edusphere.identity.auth.dto.LoginResponse;
 import com.edusphere.identity.auth.model.AuthenticationResult;
@@ -10,6 +11,8 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -31,6 +34,7 @@ public class AuthController {
     public ResponseEntity<LoginResponse> login(
             @Valid @RequestBody LoginRequest request
     ) {
+        // Login creates a short-lived access token and a refresh cookie.
         AuthenticationResult result =
                 authService.login(request);
 
@@ -52,6 +56,7 @@ public class AuthController {
     public ResponseEntity<LoginResponse> refresh(
             HttpServletRequest request
     ) {
+        // Refresh tokens live in HttpOnly cookies, not in request bodies.
         String rawRefreshToken =
                 cookieService.extractToken(request);
 
@@ -76,6 +81,7 @@ public class AuthController {
     public ResponseEntity<Void> logout(
             HttpServletRequest request
     ) {
+        // Logout revokes the submitted refresh token and clears the cookie.
         String rawRefreshToken =
                 cookieService.extractToken(request);
 
@@ -91,5 +97,19 @@ public class AuthController {
                         clearedCookie.toString()
                 )
                 .build();
+    }
+
+    @PostMapping("/password/change")
+    public ResponseEntity<Void> changePassword(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody ChangePasswordRequest request
+    ) {
+        // The JWT subject is the authenticated user changing their password.
+        authService.changePassword(
+                Long.valueOf(jwt.getSubject()),
+                request
+        );
+
+        return ResponseEntity.noContent().build();
     }
 }

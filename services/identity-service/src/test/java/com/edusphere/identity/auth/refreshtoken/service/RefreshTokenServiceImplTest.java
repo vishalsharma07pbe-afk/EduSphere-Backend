@@ -4,6 +4,7 @@ import com.edusphere.identity.auth.refreshtoken.config.RefreshTokenProperties;
 import com.edusphere.identity.auth.refreshtoken.entity.RefreshToken;
 import com.edusphere.identity.auth.refreshtoken.exception.InvalidRefreshTokenException;
 import com.edusphere.identity.auth.refreshtoken.model.RefreshTokenRotationResult;
+import com.edusphere.identity.auth.refreshtoken.policy.RefreshTokenSessionLifetimePolicy;
 import com.edusphere.identity.auth.refreshtoken.repository.RefreshTokenRepository;
 import com.edusphere.identity.auth.refreshtoken.security.RefreshTokenCodec;
 import com.edusphere.identity.user.entity.User;
@@ -39,18 +40,36 @@ class RefreshTokenServiceImplTest {
     private UserRepository userRepository;
 
     private RefreshTokenServiceImpl service;
+    private RefreshTokenProperties tokenProperties;
 
     @BeforeEach
     void setUp() {
-        RefreshTokenProperties tokenProperties =
-                new RefreshTokenProperties();
+        tokenProperties = new RefreshTokenProperties();
         tokenProperties.setExpiration(Duration.ofDays(30));
         tokenProperties.setAbsoluteSessionLifetime(Duration.ofDays(90));
+        tokenProperties.setShortSessionRoles(List.of(
+                UserRole.ADMIN,
+                UserRole.PRINCIPAL,
+                UserRole.HR,
+                UserRole.ACCOUNTANT
+        ));
+        tokenProperties.setShortSessionExpiration(Duration.ofDays(7));
+        tokenProperties.setShortSessionAbsoluteLifetime(Duration.ofDays(30));
+        tokenProperties.setStandardSessionRoles(List.of(
+                UserRole.TEACHER,
+                UserRole.STUDENT,
+                UserRole.PARENT
+        ));
+        tokenProperties.setStandardSessionExpiration(Duration.ofDays(30));
+        tokenProperties.setStandardSessionAbsoluteLifetime(
+                Duration.ofDays(90)
+        );
 
         service = new RefreshTokenServiceImpl(
                 refreshTokenRepository,
                 tokenCodec,
                 tokenProperties,
+                new RefreshTokenSessionLifetimePolicy(tokenProperties),
                 userRepository
         );
     }
@@ -77,6 +96,33 @@ class RefreshTokenServiceImplTest {
                 .isAfter(OffsetDateTime.now().plusDays(89)));
         assertTrue(tokenCaptor.getValue().getFamilyExpiresAt()
                 .isBefore(OffsetDateTime.now().plusDays(91)));
+    }
+
+    @Test
+    void createRefreshToken_whenAdmin_usesShortSessionLifetime() {
+        when(userRepository.findById(10L))
+                .thenReturn(Optional.of(user(
+                        UserStatus.ACTIVE,
+                        Set.of(UserRole.ADMIN)
+                )));
+        when(tokenCodec.generateRawToken()).thenReturn("raw-token");
+        when(tokenCodec.hash("raw-token")).thenReturn("token-hash");
+
+        service.createRefreshToken(10L);
+
+        ArgumentCaptor<RefreshToken> tokenCaptor =
+                ArgumentCaptor.forClass(RefreshToken.class);
+        verify(refreshTokenRepository).save(tokenCaptor.capture());
+
+        RefreshToken savedToken = tokenCaptor.getValue();
+        assertTrue(savedToken.getExpiresAt()
+                .isAfter(OffsetDateTime.now().plusDays(6)));
+        assertTrue(savedToken.getExpiresAt()
+                .isBefore(OffsetDateTime.now().plusDays(8)));
+        assertTrue(savedToken.getFamilyExpiresAt()
+                .isAfter(OffsetDateTime.now().plusDays(29)));
+        assertTrue(savedToken.getFamilyExpiresAt()
+                .isBefore(OffsetDateTime.now().plusDays(31)));
     }
 
     @Test
@@ -260,6 +306,40 @@ class RefreshTokenServiceImplTest {
     }
 
     @Test
+    void rotateRefreshToken_whenUserRoleChanged_usesCurrentRoleForRollingExpiry() {
+        RefreshToken token =
+                refreshToken(
+                        OffsetDateTime.now().plusHours(1),
+                        OffsetDateTime.now().plusDays(90)
+                );
+
+        when(tokenCodec.hash("raw-token")).thenReturn("token-hash");
+        when(refreshTokenRepository.findByTokenHash("token-hash"))
+                .thenReturn(Optional.of(token));
+        when(userRepository.findById(10L))
+                .thenReturn(Optional.of(user(
+                        UserStatus.ACTIVE,
+                        Set.of(UserRole.HR)
+                )));
+        when(tokenCodec.generateRawToken()).thenReturn("replacement-raw");
+        when(tokenCodec.hash("replacement-raw"))
+                .thenReturn("replacement-hash");
+
+        service.rotateRefreshToken("raw-token");
+
+        ArgumentCaptor<RefreshToken> replacementCaptor =
+                ArgumentCaptor.forClass(RefreshToken.class);
+        verify(refreshTokenRepository).save(replacementCaptor.capture());
+
+        assertTrue(replacementCaptor.getValue().getExpiresAt()
+                .isAfter(OffsetDateTime.now().plusDays(6)));
+        assertTrue(replacementCaptor.getValue().getExpiresAt()
+                .isBefore(OffsetDateTime.now().plusDays(8)));
+        assertEquals(token.getFamilyExpiresAt(),
+                replacementCaptor.getValue().getFamilyExpiresAt());
+    }
+
+    @Test
     void rotateRefreshToken_whenFamilyExpiryNear_capsReplacementExpiry() {
         OffsetDateTime familyExpiresAt =
                 OffsetDateTime.now().plusDays(5);
@@ -432,11 +512,18 @@ class RefreshTokenServiceImplTest {
     }
 
     private static User user(UserStatus status) {
+        return user(status, Set.of(UserRole.TEACHER));
+    }
+
+    private static User user(
+            UserStatus status,
+            Set<UserRole> roles
+    ) {
         User user = new User(
                 1L,
                 "teacher01",
                 "Rahul",
-                Set.of(UserRole.TEACHER)
+                roles
         );
         ReflectionTestUtils.setField(user, "id", 10L);
         user.setStatus(status);

@@ -54,6 +54,7 @@ public class AccountActivationServiceImpl
     @Override
     @Transactional
     public String generateActivationToken(Long userId) {
+        // Activation links are only for accounts waiting to set a password.
         User user = userRepository
                 .findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException(
@@ -80,6 +81,7 @@ public class AccountActivationServiceImpl
 
         if (emailsGenerated
                 >= tokenProperties.getMaxEmailsPerWindow()) {
+            // Throttle resend storms and accidental repeated emails.
             throw new IllegalStateException(
                     "Activation email rate limit exceeded"
             );
@@ -90,6 +92,7 @@ public class AccountActivationServiceImpl
                                 userId
                         );
 
+        // Only the newest activation link can be completed.
         previousTokens.forEach(token ->
                 token.revoke(currentTime)
         );
@@ -114,6 +117,7 @@ public class AccountActivationServiceImpl
     @Override
     @Transactional(readOnly = true)
     public boolean isActivationTokenValid(String rawToken) {
+        // Frontend validation must not consume or mutate the token.
         if (rawToken == null || rawToken.isBlank()) {
             return false;
         }
@@ -166,6 +170,7 @@ public class AccountActivationServiceImpl
         OffsetDateTime currentTime = OffsetDateTime.now();
 
         if (!activationToken.isValidAt(currentTime)) {
+            // Used, revoked, and expired links get the same public response.
             throw invalidToken();
         }
 
@@ -181,6 +186,7 @@ public class AccountActivationServiceImpl
                 request.getPassword()
         );
 
+        // Activation sets the first password and moves the account to ACTIVE.
         user.activate(passwordHash);
         activationToken.markUsed(currentTime);
     }

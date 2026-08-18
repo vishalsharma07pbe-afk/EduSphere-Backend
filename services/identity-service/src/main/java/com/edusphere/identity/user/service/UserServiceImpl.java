@@ -11,6 +11,9 @@ import com.edusphere.identity.roleapproval.exception.InvalidRoleRequestException
 import com.edusphere.identity.roleapproval.mapper.RoleAssignmentRequestMapper;
 import com.edusphere.identity.roleapproval.policy.RoleApprovalPolicy;
 import com.edusphere.identity.roleapproval.repository.RoleAssignmentRequestRepository;
+import com.edusphere.identity.auth.refreshtoken.service.RefreshTokenService;
+import com.edusphere.identity.user.exception.InvalidUserStatusTransitionException;
+import com.edusphere.identity.user.policy.UserStatusTransitionPolicy;
 import com.edusphere.identity.user.dto.CreateUserRequest;
 import com.edusphere.identity.user.dto.UpdateUserProfileRequest;
 import com.edusphere.identity.user.dto.UpdateUserRolesRequest;
@@ -35,6 +38,13 @@ import java.util.Set;
 @Transactional
 public class UserServiceImpl implements UserService {
 
+    private static final Set<UserRole> STATUS_MANAGEMENT_ROLES =
+            Set.of(
+                    UserRole.ADMIN,
+                    UserRole.PRINCIPAL,
+                    UserRole.HR
+            );
+
     private static final Set<UserRole> ACTIVATION_RESEND_ROLES =
             Set.of(
                     UserRole.ADMIN,
@@ -50,6 +60,8 @@ public class UserServiceImpl implements UserService {
     private final RoleAssignmentRequestRepository roleRequestRepository;
     private final RoleAssignmentRequestMapper roleRequestMapper;
     private final ApplicationEventPublisher eventPublisher;
+    private final UserStatusTransitionPolicy statusTransitionPolicy;
+    private final RefreshTokenService refreshTokenService;
 
     public UserServiceImpl(
             UserRepository userRepository,
@@ -57,7 +69,9 @@ public class UserServiceImpl implements UserService {
             RoleApprovalPolicy roleApprovalPolicy,
             RoleAssignmentRequestRepository roleRequestRepository,
             RoleAssignmentRequestMapper roleRequestMapper,
-            ApplicationEventPublisher eventPublisher
+            ApplicationEventPublisher eventPublisher,
+            UserStatusTransitionPolicy statusTransitionPolicy,
+            RefreshTokenService refreshTokenService
     ) {
         this.userRepository = userRepository;
         this.userMapper = userMapper;
@@ -65,6 +79,8 @@ public class UserServiceImpl implements UserService {
         this.roleRequestRepository = roleRequestRepository;
         this.roleRequestMapper = roleRequestMapper;
         this.eventPublisher = eventPublisher;
+        this.statusTransitionPolicy = statusTransitionPolicy;
+        this.refreshTokenService = refreshTokenService;
     }
 
     @Override
@@ -382,10 +398,44 @@ public class UserServiceImpl implements UserService {
     @Override
     public UserResponse updateUserStatus(
             Long organizationId,
+            Long updatedByUserId,
             Long userId,
             UpdateUserStatusRequest request
     ) {
-        User user = userRepository
+        // Status changes are restricted because they can disable accounts.
+        User updater = userRepository
+                .findByOrganizationIdAndId(
+                        organizationId,
+                        updatedByUserId
+                )
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Status-updating user not found"
+                ));
+
+        if (updater.getStatus() != UserStatus.ACTIVE) {
+            throw new ApprovalNotAllowedException(
+                    "Only an active user can update account status"
+            );
+        }
+
+        boolean authorized = updater.getRoles()
+                .stream()
+                .anyMatch(STATUS_MANAGEMENT_ROLES::contains);
+
+        if (!authorized) {
+            throw new ApprovalNotAllowedException(
+                    "You are not authorized to update account status"
+            );
+        }
+
+        if (updater.getId().equals(userId)) {
+            // Prevent accidental or malicious self-lockout by administrators.
+            throw new ApprovalNotAllowedException(
+                    "You cannot update your own account status"
+            );
+        }
+
+        User targetUser = userRepository
                 .findByOrganizationIdAndId(
                         organizationId,
                         userId
@@ -395,13 +445,44 @@ public class UserServiceImpl implements UserService {
                                 + " in organization: " + organizationId
                 ));
 
-        user.setStatus(request.getStatus());
+        UserStatus currentStatus =
+                targetUser.getStatus();
 
-        if (request.getStatus() == UserStatus.ACTIVE) {
-            user.clearLoginLock();
+        UserStatus requestedStatus =
+                request.getStatus();
+
+        if (!statusTransitionPolicy
+                .canTransitionAdministratively(
+                        currentStatus,
+                        requestedStatus
+                )) {
+            // Lifecycle-only states cannot be skipped by the status endpoint.
+            throw new InvalidUserStatusTransitionException(
+                    "Status transition from "
+                            + currentStatus
+                            + " to "
+                            + requestedStatus
+                            + " is not allowed"
+            );
         }
 
-        User updatedUser = userRepository.save(user);
+        if (currentStatus == requestedStatus) {
+            // Idempotent requests return the current state without side effects.
+            return userMapper.toResponse(targetUser);
+        }
+
+        targetUser.setStatus(requestedStatus);
+
+        User updatedUser =
+                userRepository.save(targetUser);
+
+        if (requestedStatus == UserStatus.SUSPENDED
+                || requestedStatus == UserStatus.INACTIVE) {
+            // Disabled accounts must immediately lose all refresh sessions.
+            refreshTokenService.revokeAllForUser(
+                    targetUser.getId()
+            );
+        }
 
         return userMapper.toResponse(updatedUser);
     }

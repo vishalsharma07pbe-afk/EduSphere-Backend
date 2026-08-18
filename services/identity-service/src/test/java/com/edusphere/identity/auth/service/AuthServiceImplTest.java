@@ -1,10 +1,14 @@
 package com.edusphere.identity.auth.service;
 
+import com.edusphere.identity.auth.config.PasswordChangeProperties;
+import com.edusphere.identity.auth.dto.ChangePasswordRequest;
 import com.edusphere.identity.auth.dto.LoginRequest;
 import com.edusphere.identity.auth.dto.LoginResponse;
+import com.edusphere.identity.auth.activation.exception.PasswordMismatchException;
 import com.edusphere.identity.auth.exception.AccountLockedException;
 import com.edusphere.identity.auth.exception.AccountNotActiveException;
 import com.edusphere.identity.auth.exception.InvalidCredentialsException;
+import com.edusphere.identity.auth.exception.PasswordChangeNotAllowedException;
 import com.edusphere.identity.auth.lockout.LoginLockoutProperties;
 import com.edusphere.identity.auth.lockout.LoginLockoutService;
 import com.edusphere.identity.auth.model.AuthenticationResult;
@@ -45,6 +49,7 @@ class AuthServiceImplTest {
     private RefreshTokenService refreshTokenService;
 
     private AuthServiceImpl authService;
+    private PasswordChangeProperties passwordChangeProperties;
 
     @BeforeEach
     void setUp() {
@@ -55,13 +60,22 @@ class AuthServiceImplTest {
         lockoutProperties.setFirstLockDuration(Duration.ofMinutes(30));
         lockoutProperties.setSecondLockDuration(Duration.ofDays(30));
         lockoutProperties.setFinalLockDuration(Duration.ofDays(365));
+        lockoutProperties.setLockedMessagePrefix(
+                "Account is locked until "
+        );
+        lockoutProperties.setLockedMessageSuffix(
+                ". Please contact an admin to unlock sooner."
+        );
+        passwordChangeProperties = new PasswordChangeProperties();
+        passwordChangeProperties.setCooldown(Duration.ofHours(24));
 
         authService = new AuthServiceImpl(
                 userRepository,
                 passwordEncoder,
                 jwtService,
                 refreshTokenService,
-                new LoginLockoutService(lockoutProperties)
+                new LoginLockoutService(lockoutProperties),
+                passwordChangeProperties
         );
     }
 
@@ -334,11 +348,103 @@ class AuthServiceImplTest {
         verify(refreshTokenService).revokeRefreshToken("refresh-token");
     }
 
+    @Test
+    void changePassword_whenCurrentPasswordWrong_throwsInvalidCredentialsException() {
+        ChangePasswordRequest request = changePasswordRequest();
+        User user = user(UserStatus.ACTIVE);
+
+        when(userRepository.findById(10L)).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("Teacher@123", "encoded-password"))
+                .thenReturn(false);
+
+        InvalidCredentialsException exception = assertThrows(
+                InvalidCredentialsException.class,
+                () -> authService.changePassword(10L, request)
+        );
+
+        assertEquals("Current password is incorrect", exception.getMessage());
+        verify(passwordEncoder, never()).encode(anyString());
+        verify(refreshTokenService, never()).revokeAllForUser(anyLong());
+    }
+
+    @Test
+    void changePassword_whenConfirmationMismatch_throwsPasswordMismatchException() {
+        ChangePasswordRequest request = changePasswordRequest();
+        request.setConfirmPassword("Other@123");
+
+        PasswordMismatchException exception = assertThrows(
+                PasswordMismatchException.class,
+                () -> authService.changePassword(10L, request)
+        );
+
+        assertEquals(
+                "Password and confirmation do not match",
+                exception.getMessage()
+        );
+        verifyNoInteractions(userRepository);
+    }
+
+    @Test
+    void changePassword_whenCooldownActive_throwsPasswordChangeNotAllowedException() {
+        ChangePasswordRequest request = changePasswordRequest();
+        User user = user(UserStatus.ACTIVE);
+        ReflectionTestUtils.setField(
+                user,
+                "passwordChangedAt",
+                OffsetDateTime.now().minusHours(2)
+        );
+
+        when(userRepository.findById(10L)).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("Teacher@123", "encoded-password"))
+                .thenReturn(true);
+
+        assertThrows(
+                PasswordChangeNotAllowedException.class,
+                () -> authService.changePassword(10L, request)
+        );
+
+        verify(passwordEncoder, never()).encode(anyString());
+        verify(refreshTokenService, never()).revokeAllForUser(anyLong());
+    }
+
+    @Test
+    void changePassword_whenValid_updatesPasswordAndRevokesSessions() {
+        ChangePasswordRequest request = changePasswordRequest();
+        User user = user(UserStatus.ACTIVE);
+        ReflectionTestUtils.setField(
+                user,
+                "passwordChangedAt",
+                OffsetDateTime.now().minusHours(25)
+        );
+
+        when(userRepository.findById(10L)).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("Teacher@123", "encoded-password"))
+                .thenReturn(true);
+        when(passwordEncoder.encode("NewTeacher@123"))
+                .thenReturn("encoded-new-password");
+
+        authService.changePassword(10L, request);
+
+        assertEquals("encoded-new-password", user.getPasswordHash());
+        assertNotNull(user.getPasswordChangedAt());
+        assertEquals(0, user.getFailedLoginAttempts());
+        assertNull(user.getLockedUntil());
+        verify(refreshTokenService).revokeAllForUser(10L);
+    }
+
     private static LoginRequest request() {
         LoginRequest request = new LoginRequest();
         request.setOrganizationId(1L);
         request.setUsername("teacher01");
         request.setPassword("Teacher@123");
+        return request;
+    }
+
+    private static ChangePasswordRequest changePasswordRequest() {
+        ChangePasswordRequest request = new ChangePasswordRequest();
+        request.setCurrentPassword("Teacher@123");
+        request.setNewPassword("NewTeacher@123");
+        request.setConfirmPassword("NewTeacher@123");
         return request;
     }
 
