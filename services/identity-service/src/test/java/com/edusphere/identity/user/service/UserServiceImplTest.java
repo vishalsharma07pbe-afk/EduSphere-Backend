@@ -1,6 +1,7 @@
 package com.edusphere.identity.user.service;
 
 import com.edusphere.identity.common.dto.PageResponse;
+import com.edusphere.identity.auth.activation.event.UserActivationRequestedEvent;
 import com.edusphere.identity.roleapproval.entity.RoleAssignmentRequest;
 import com.edusphere.identity.roleapproval.enums.ApprovalStatus;
 import com.edusphere.identity.roleapproval.exception.InvalidRoleRequestException;
@@ -20,10 +21,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
@@ -40,13 +41,13 @@ public class UserServiceImplTest {
     @Mock
     private UserMapper userMapper;
     @Mock
-    private PasswordEncoder passwordEncoder;
-    @Mock
     private RoleApprovalPolicy roleApprovalPolicy;
     @Mock
     private RoleAssignmentRequestRepository roleRequestRepository;
     @Mock
     private RoleAssignmentRequestMapper roleRequestMapper;
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     private UserServiceImpl userService;
 
@@ -55,10 +56,10 @@ public class UserServiceImplTest {
         userService = new UserServiceImpl(
                 userRepository,
                 userMapper,
-                passwordEncoder,
                 roleApprovalPolicy,
                 roleRequestRepository,
-                roleRequestMapper
+                roleRequestMapper,
+                eventPublisher
         );
     }
 
@@ -147,7 +148,6 @@ public class UserServiceImplTest {
         CreateUserRequest request = new CreateUserRequest();
         request.setOrganizationId(1L);
         request.setUsername("teacher01");
-        request.setPassword("Teacher@123");
         request.setFirstName("Rahul");
         request.setEmail("rahul@edusphere.com");
         request.setRoles(Set.of(UserRole.TEACHER));
@@ -163,9 +163,10 @@ public class UserServiceImplTest {
         User savedUser = new User();
         savedUser.setOrganizationId(1L);
         savedUser.setUsername("teacher01");
-        savedUser.setPasswordHash("encoded-password");
         savedUser.setFirstName("Rahul");
         savedUser.setEmail("rahul@edusphere.com");
+        savedUser.setStatus(UserStatus.PENDING_ACTIVATION);
+        ReflectionTestUtils.setField(savedUser, "id", 10L);
 
         UserResponse expectedResponse = new UserResponse();
         expectedResponse.setId(10L);
@@ -193,9 +194,6 @@ public class UserServiceImplTest {
         when(userMapper.toEntity(request))
                 .thenReturn(user);
 
-        when(passwordEncoder.encode("Teacher@123"))
-                .thenReturn("encoded-password");
-
         when(userRepository.save(user))
                 .thenReturn(savedUser);
 
@@ -207,10 +205,8 @@ public class UserServiceImplTest {
 
         assertSame(expectedResponse, actualResponse);
 
-        assertEquals(
-                "encoded-password",
-                user.getPasswordHash()
-        );
+        assertNull(user.getPasswordHash());
+        assertEquals(UserStatus.PENDING_ACTIVATION, user.getStatus());
 
         verify(userRepository)
                 .existsByOrganizationIdAndUsername(
@@ -221,8 +217,10 @@ public class UserServiceImplTest {
                         1L,
                         "rahul@edusphere.com");
         verify(userMapper).toEntity(request);
-        verify(passwordEncoder).encode("Teacher@123");
         verify(userRepository).save(user);
+        verify(eventPublisher).publishEvent(
+                new UserActivationRequestedEvent(10L)
+        );
         verify(userMapper).toResponse(savedUser);
     }
 
@@ -231,7 +229,6 @@ public class UserServiceImplTest {
         CreateUserRequest request = new CreateUserRequest();
         request.setOrganizationId(1L);
         request.setUsername("teacher01");
-        request.setPassword("Teacher@123");
         request.setEmail(" ");
         request.setRoles(Set.of(UserRole.TEACHER));
 
@@ -251,15 +248,13 @@ public class UserServiceImplTest {
         when(roleApprovalPolicy.getSensitiveRoles(Set.of(UserRole.TEACHER)))
                 .thenReturn(Set.of());
         when(userMapper.toEntity(request)).thenReturn(user);
-        when(passwordEncoder.encode("Teacher@123"))
-                .thenReturn("encoded-password");
         when(userRepository.save(user)).thenReturn(user);
         when(userMapper.toResponse(user)).thenReturn(expectedResponse);
 
         UserResponse actualResponse = userService.createUser(1L, 99L, request);
 
         assertSame(expectedResponse, actualResponse);
-        assertEquals("encoded-password", user.getPasswordHash());
+        assertNull(user.getPasswordHash());
 
         verify(userRepository, never())
                 .existsByOrganizationIdAndEmail(anyLong(), anyString());

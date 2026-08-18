@@ -34,6 +34,47 @@ public class SecurityConfig {
                                 HttpMethod.POST,
                                 "/api/v1/auth/login"
                         ).permitAll()
+
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/v1/auth/activation/validate"
+                        ).permitAll()
+
+                        .requestMatchers(
+                                HttpMethod.POST,
+                                "/api/v1/auth/activation/complete"
+                        ).permitAll()
+
+                        .requestMatchers(
+                                HttpMethod.POST,
+                                "/api/v1/auth/activation/resend"
+                        ).permitAll()
+
+                        .requestMatchers(
+                                HttpMethod.POST,
+                                "/api/v1/auth/password-reset/request"
+                        ).permitAll()
+
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/v1/auth/password-reset/validate"
+                        ).permitAll()
+
+                        .requestMatchers(
+                                HttpMethod.POST,
+                                "/api/v1/auth/password-reset/complete"
+                        ).permitAll()
+
+                        .requestMatchers(
+                                HttpMethod.POST,
+                                "/api/v1/auth/refresh"
+                        ).permitAll()
+
+                        .requestMatchers(
+                                HttpMethod.POST,
+                                "/api/v1/auth/logout"
+                        ).permitAll()
+
                         .anyRequest().authenticated()
                 )
 

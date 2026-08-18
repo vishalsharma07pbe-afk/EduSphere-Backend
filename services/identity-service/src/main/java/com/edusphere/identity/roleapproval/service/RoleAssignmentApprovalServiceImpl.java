@@ -14,6 +14,8 @@ import com.edusphere.identity.roleapproval.mapper.RoleAssignmentApprovalMapper;
 import com.edusphere.identity.roleapproval.policy.RoleApprovalPolicy;
 import com.edusphere.identity.roleapproval.repository.RoleAssignmentApprovalRepository;
 import com.edusphere.identity.roleapproval.repository.RoleAssignmentRequestRepository;
+import com.edusphere.identity.auth.activation.event.UserActivationRequestedEvent;
+import org.springframework.context.ApplicationEventPublisher;
 import com.edusphere.identity.user.entity.User;
 import com.edusphere.identity.user.enums.UserRole;
 import com.edusphere.identity.user.enums.UserStatus;
@@ -37,19 +39,22 @@ public class RoleAssignmentApprovalServiceImpl
     private final UserRepository userRepository;
     private final RoleApprovalPolicy approvalPolicy;
     private final RoleAssignmentApprovalMapper approvalMapper;
+    private final ApplicationEventPublisher eventPublisher;
 
     public RoleAssignmentApprovalServiceImpl(
             RoleAssignmentRequestRepository requestRepository,
             RoleAssignmentApprovalRepository approvalRepository,
             UserRepository userRepository,
             RoleApprovalPolicy approvalPolicy,
-            RoleAssignmentApprovalMapper approvalMapper
+            RoleAssignmentApprovalMapper approvalMapper,
+            ApplicationEventPublisher eventPublisher
     ) {
         this.requestRepository = requestRepository;
         this.approvalRepository = approvalRepository;
         this.userRepository = userRepository;
         this.approvalPolicy = approvalPolicy;
         this.approvalMapper = approvalMapper;
+        this.eventPublisher = eventPublisher;
     }
 
     @Override
@@ -293,11 +298,15 @@ public class RoleAssignmentApprovalServiceImpl
             targetUser.setStatus(
                     UserStatus.PENDING_ACTIVATION
             );
+
+            // Send the activation link only after the approval transaction commits.
+            eventPublisher.publishEvent(
+                    new UserActivationRequestedEvent(
+                            targetUser.getId()
+                    )
+            );
         } else {
-            /*
-             * If every requested role was rejected and no routine role
-             * exists, there is no usable account to activate.
-             */
+            // Keep accounts without any approved or routine role unusable.
             targetUser.setStatus(UserStatus.INACTIVE);
         }
     }

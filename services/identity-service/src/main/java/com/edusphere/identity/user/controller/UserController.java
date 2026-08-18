@@ -148,4 +148,32 @@ public class UserController {
 
         return ResponseEntity.ok(response);
     }
+
+    @PostMapping("/{userId}/activation/resend")
+    @PreAuthorize("""
+        @tenantSecurity.canAccessOrganization(authentication, #organizationId)
+        and hasAnyRole(
+            'ADMIN',
+            'PRINCIPAL',
+            'VICE_PRINCIPAL_HEADMASTER',
+            'HR',
+            'ADMISSIONS'
+        )
+        """)
+    public ResponseEntity<Void> resendActivationLink(
+            @PathVariable Long organizationId,
+            @PathVariable Long userId,
+            @AuthenticationPrincipal Jwt jwt
+    ) {
+        Long requestedByUserId =
+                Long.valueOf(jwt.getSubject());
+
+        userService.resendActivationLink(
+                organizationId,
+                userId,
+                requestedByUserId
+        );
+
+        return ResponseEntity.accepted().build();
+    }
 }

@@ -1,26 +1,33 @@
 package com.edusphere.identity.user.service;
 
+import com.edusphere.identity.auth.activation.event.UserActivationRequestedEvent;
 import com.edusphere.identity.common.dto.PageResponse;
-import com.edusphere.identity.user.dto.*;
-import com.edusphere.identity.user.entity.User;
 import com.edusphere.identity.common.exception.DuplicateResourceException;
 import com.edusphere.identity.common.exception.ResourceNotFoundException;
-import com.edusphere.identity.user.mapper.UserMapper;
-import com.edusphere.identity.user.repository.UserRepository;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import com.edusphere.identity.roleapproval.dto.CreateRoleAssignmentRequest;
 import com.edusphere.identity.roleapproval.entity.RoleAssignmentRequest;
+import com.edusphere.identity.roleapproval.enums.ApprovalStatus;
 import com.edusphere.identity.roleapproval.exception.InvalidRoleRequestException;
 import com.edusphere.identity.roleapproval.mapper.RoleAssignmentRequestMapper;
 import com.edusphere.identity.roleapproval.policy.RoleApprovalPolicy;
 import com.edusphere.identity.roleapproval.repository.RoleAssignmentRequestRepository;
+import com.edusphere.identity.user.dto.CreateUserRequest;
+import com.edusphere.identity.user.dto.UpdateUserProfileRequest;
+import com.edusphere.identity.user.dto.UpdateUserRolesRequest;
+import com.edusphere.identity.user.dto.UpdateUserStatusRequest;
+import com.edusphere.identity.user.dto.UserResponse;
+import com.edusphere.identity.user.entity.User;
 import com.edusphere.identity.user.enums.UserRole;
 import com.edusphere.identity.user.enums.UserStatus;
-import com.edusphere.identity.roleapproval.enums.ApprovalStatus;
+import com.edusphere.identity.user.mapper.UserMapper;
+import com.edusphere.identity.user.repository.UserRepository;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import com.edusphere.identity.roleapproval.exception.ApprovalNotAllowedException;
+
 import java.util.HashSet;
 import java.util.Set;
 
@@ -28,27 +35,36 @@ import java.util.Set;
 @Transactional
 public class UserServiceImpl implements UserService {
 
+    private static final Set<UserRole> ACTIVATION_RESEND_ROLES =
+            Set.of(
+                    UserRole.ADMIN,
+                    UserRole.PRINCIPAL,
+                    UserRole.VICE_PRINCIPAL_HEADMASTER,
+                    UserRole.HR,
+                    UserRole.ADMISSIONS
+            );
+
     private final UserRepository userRepository;
     private final UserMapper userMapper;
-    private final PasswordEncoder passwordEncoder;
     private final RoleApprovalPolicy roleApprovalPolicy;
     private final RoleAssignmentRequestRepository roleRequestRepository;
     private final RoleAssignmentRequestMapper roleRequestMapper;
+    private final ApplicationEventPublisher eventPublisher;
 
     public UserServiceImpl(
             UserRepository userRepository,
             UserMapper userMapper,
-            PasswordEncoder passwordEncoder,
             RoleApprovalPolicy roleApprovalPolicy,
             RoleAssignmentRequestRepository roleRequestRepository,
-            RoleAssignmentRequestMapper roleRequestMapper
+            RoleAssignmentRequestMapper roleRequestMapper,
+            ApplicationEventPublisher eventPublisher
     ) {
         this.userRepository = userRepository;
         this.userMapper = userMapper;
-        this.passwordEncoder = passwordEncoder;
         this.roleApprovalPolicy = roleApprovalPolicy;
         this.roleRequestRepository = roleRequestRepository;
         this.roleRequestMapper = roleRequestMapper;
+        this.eventPublisher = eventPublisher;
     }
 
     @Override
@@ -58,10 +74,7 @@ public class UserServiceImpl implements UserService {
             Long createdByUserId,
             CreateUserRequest request
     ) {
-        /*
-         * Load the authenticated creator from the same organization.
-         * This prevents one organization from creating users for another.
-         */
+        // Load the authenticated creator from the secured organization.
         User creator = userRepository
                 .findByOrganizationIdAndId(
                         organizationId,
@@ -71,16 +84,14 @@ public class UserServiceImpl implements UserService {
                         "Creating user not found"
                 ));
 
+        // Only active users can create another account.
         if (creator.getStatus() != UserStatus.ACTIVE) {
             throw new InvalidRoleRequestException(
                     "Only an active user can create another user"
             );
         }
 
-        /*
-         * Always use the organization ID from the secured URL.
-         * Do not use the request-body value for database queries.
-         */
+        // Check username uniqueness within the organization.
         if (userRepository.existsByOrganizationIdAndUsername(
                 organizationId,
                 request.getUsername()
@@ -91,6 +102,7 @@ public class UserServiceImpl implements UserService {
             );
         }
 
+        // Check email uniqueness within the organization.
         if (request.getEmail() != null
                 && !request.getEmail().isBlank()
                 && userRepository.existsByOrganizationIdAndEmail(
@@ -103,20 +115,14 @@ public class UserServiceImpl implements UserService {
             );
         }
 
-        /*
-         * Routine roles can be assigned immediately.
-         * Sensitive roles must pass through the approval workflow.
-         */
+        // Separate immediately assignable roles from approval-protected roles.
         Set<UserRole> routineRoles =
                 roleApprovalPolicy.getRoutineRoles(request.getRoles());
 
         Set<UserRole> sensitiveRoles =
                 roleApprovalPolicy.getSensitiveRoles(request.getRoles());
 
-        /*
-         * Verify that the creator is permitted to request every sensitive role.
-         * Throwing here rolls back the entire transaction.
-         */
+        // Validate permission to request every sensitive role.
         for (UserRole sensitiveRole : sensitiveRoles) {
             if (!roleApprovalPolicy.canRequestApproval(
                     creator.getRoles(),
@@ -129,27 +135,14 @@ public class UserServiceImpl implements UserService {
             }
         }
 
+        // Map the administrative request without creating a password.
         User user = userMapper.toEntity(request);
 
-        /*
-         * UserMapper may have copied all submitted roles.
-         * Replace them with routine roles so sensitive roles are not assigned.
-         */
+        // Assign only routine roles and trust the organization ID from the URL.
         user.setRoles(routineRoles);
         user.setOrganizationId(organizationId);
 
-        /*
-         * Temporary password handling remains until activation links are added.
-         */
-        String encodedPassword =
-                passwordEncoder.encode(request.getPassword());
-
-        user.setPasswordHash(encodedPassword);
-
-        /*
-         * Sensitive roles keep the account waiting for approval.
-         * Otherwise it can move directly to activation.
-         */
+        // Sensitive-role accounts wait for approval before activation.
         if (sensitiveRoles.isEmpty()) {
             user.setStatus(UserStatus.PENDING_ACTIVATION);
         } else {
@@ -158,9 +151,7 @@ public class UserServiceImpl implements UserService {
 
         User savedUser = userRepository.save(user);
 
-        /*
-         * Create one independent approval request for each sensitive role.
-         */
+        // Create one independent approval request for every sensitive role.
         for (UserRole sensitiveRole : sensitiveRoles) {
             CreateRoleAssignmentRequest approvalRequest =
                     new CreateRoleAssignmentRequest(
@@ -179,14 +170,29 @@ public class UserServiceImpl implements UserService {
             roleRequestRepository.save(roleRequest);
         }
 
+        // Send activation only after a routine-role user is committed successfully.
+        if (savedUser.getStatus() == UserStatus.PENDING_ACTIVATION) {
+            eventPublisher.publishEvent(
+                    new UserActivationRequestedEvent(
+                            savedUser.getId()
+                    )
+            );
+        }
+
         return userMapper.toResponse(savedUser);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public UserResponse getUserById(Long organizationId, Long userId) {
+    public UserResponse getUserById(
+            Long organizationId,
+            Long userId
+    ) {
         User user = userRepository
-                .findByOrganizationIdAndId(organizationId, userId)
+                .findByOrganizationIdAndId(
+                        organizationId,
+                        userId
+                )
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "User not found with ID: " + userId
                                 + " in organization: " + organizationId
@@ -202,7 +208,10 @@ public class UserServiceImpl implements UserService {
             Pageable pageable
     ) {
         Page<UserResponse> userResponsePage = userRepository
-                .findAllByOrganizationId(organizationId, pageable)
+                .findAllByOrganizationId(
+                        organizationId,
+                        pageable
+                )
                 .map(userMapper::toResponse);
 
         return PageResponse.from(userResponsePage);
@@ -215,12 +224,16 @@ public class UserServiceImpl implements UserService {
             UpdateUserProfileRequest request
     ) {
         User user = userRepository
-                .findByOrganizationIdAndId(organizationId, userId)
+                .findByOrganizationIdAndId(
+                        organizationId,
+                        userId
+                )
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "User not found with ID: " + userId
                                 + " in organization: " + organizationId
                 ));
 
+        // Prevent duplicate email addresses within the organization.
         if (request.getEmail() != null
                 && !request.getEmail().isBlank()
                 && !request.getEmail().equalsIgnoreCase(user.getEmail())
@@ -235,7 +248,9 @@ public class UserServiceImpl implements UserService {
         }
 
         userMapper.updateProfile(request, user);
+
         User updatedUser = userRepository.save(user);
+
         return userMapper.toResponse(updatedUser);
     }
 
@@ -256,6 +271,7 @@ public class UserServiceImpl implements UserService {
                         "Role-updating user not found"
                 ));
 
+        // Only active users can update another user's roles.
         if (updater.getStatus() != UserStatus.ACTIVE) {
             throw new InvalidRoleRequestException(
                     "Only an active user can update roles"
@@ -272,47 +288,38 @@ public class UserServiceImpl implements UserService {
                                 + " in organization: " + organizationId
                 ));
 
-        /*
-         * Users cannot assign or request roles for themselves.
-         * This blocks self-privilege escalation.
-         */
+        // Prevent users from assigning roles to themselves.
         if (updater.getId().equals(targetUser.getId())) {
             throw new InvalidRoleRequestException(
                     "You cannot update your own roles"
             );
         }
 
-        /*
-         * Account-creation roles are handled by createUser().
-         * This endpoint handles role changes for existing active accounts.
-         */
+        // Only active existing accounts can receive role updates.
         if (targetUser.getStatus() != UserStatus.ACTIVE) {
             throw new InvalidRoleRequestException(
                     "Roles can only be updated for an active user"
             );
         }
 
-        /*
-         * Treat request.roles as roles to ADD, not a complete replacement.
-         * Existing roles are removed from the collection of new roles.
-         */
-        Set<UserRole> newRoles = new HashSet<>(request.getRoles());
+        // Treat submitted roles as additions instead of a full replacement.
+        Set<UserRole> newRoles =
+                new HashSet<>(request.getRoles());
+
         newRoles.removeAll(targetUser.getRoles());
 
         if (newRoles.isEmpty()) {
             return userMapper.toResponse(targetUser);
         }
 
+        // Separate routine roles from approval-protected roles.
         Set<UserRole> routineRoles =
                 roleApprovalPolicy.getRoutineRoles(newRoles);
 
         Set<UserRole> sensitiveRoles =
                 roleApprovalPolicy.getSensitiveRoles(newRoles);
 
-        /*
-         * Validate all sensitive roles before changing the user.
-         * A failure rolls back the complete transaction.
-         */
+        // Validate permission and prevent duplicate pending requests.
         for (UserRole sensitiveRole : sensitiveRoles) {
             if (!roleApprovalPolicy.canRequestApproval(
                     updater.getRoles(),
@@ -343,17 +350,12 @@ public class UserServiceImpl implements UserService {
             }
         }
 
-        /*
-         * Routine roles are safe to assign immediately.
-         */
+        // Assign routine roles immediately.
         for (UserRole routineRole : routineRoles) {
             targetUser.addRole(routineRole);
         }
 
-        /*
-         * Sensitive roles are not added to the user.
-         * Each one becomes a separate pending approval request.
-         */
+        // Convert every sensitive role into an approval request.
         for (UserRole sensitiveRole : sensitiveRoles) {
             CreateRoleAssignmentRequest approvalRequest =
                     new CreateRoleAssignmentRequest(
@@ -373,6 +375,7 @@ public class UserServiceImpl implements UserService {
         }
 
         User updatedUser = userRepository.save(targetUser);
+
         return userMapper.toResponse(updatedUser);
     }
 
@@ -383,14 +386,80 @@ public class UserServiceImpl implements UserService {
             UpdateUserStatusRequest request
     ) {
         User user = userRepository
-                .findByOrganizationIdAndId(organizationId, userId)
+                .findByOrganizationIdAndId(
+                        organizationId,
+                        userId
+                )
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "User not found with ID: " + userId
                                 + " in organization: " + organizationId
                 ));
 
         user.setStatus(request.getStatus());
+
         User updatedUser = userRepository.save(user);
+
         return userMapper.toResponse(updatedUser);
+    }
+
+    @Override
+    public void resendActivationLink(
+            Long organizationId,
+            Long userId,
+            Long requestedByUserId
+    ) {
+        User requester = userRepository
+                .findByOrganizationIdAndId(
+                        organizationId,
+                        requestedByUserId
+                )
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Requesting user not found"
+                ));
+
+        if (requester.getStatus() != UserStatus.ACTIVE) {
+            throw new ApprovalNotAllowedException(
+                    "Only an active user can resend an activation link"
+            );
+        }
+
+        boolean authorized = requester.getRoles()
+                .stream()
+                .anyMatch(ACTIVATION_RESEND_ROLES::contains);
+
+        if (!authorized) {
+            throw new ApprovalNotAllowedException(
+                    "You are not authorized to resend activation links"
+            );
+        }
+
+        User targetUser = userRepository
+                .findByOrganizationIdAndId(
+                        organizationId,
+                        userId
+                )
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Target user not found"
+                ));
+
+        if (targetUser.getStatus()
+                != UserStatus.PENDING_ACTIVATION) {
+            throw new InvalidRoleRequestException(
+                    "Only a user pending activation can receive an activation link"
+            );
+        }
+
+        if (targetUser.getEmail() == null
+                || targetUser.getEmail().isBlank()) {
+            throw new InvalidRoleRequestException(
+                    "The user does not have an email address"
+            );
+        }
+
+        eventPublisher.publishEvent(
+                new UserActivationRequestedEvent(
+                        targetUser.getId()
+                )
+        );
     }
 }

@@ -32,7 +32,7 @@ public class User {
     @Column(nullable = false, length = 100)
     private String username;
 
-    @Column(name = "password_hash", nullable = false, length = 255)
+    @Column(name = "password_hash", length = 255)
     private String passwordHash;
 
     @Column(name = "first_name", nullable = false, length = 100)
@@ -72,6 +72,9 @@ public class User {
     @Column(name = "last_login_at")
     private OffsetDateTime lastLoginAt;
 
+    @Column(name = "password_changed_at")
+    private OffsetDateTime passwordChangedAt;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
@@ -86,15 +89,14 @@ public class User {
     public User(
             Long organizationId,
             String username,
-            String passwordHash,
             String firstName,
             Set<UserRole> roles
     ) {
         this.organizationId = organizationId;
         this.username = username;
-        this.passwordHash = passwordHash;
         this.firstName = firstName;
         setRoles(roles);
+        this.status = UserStatus.PENDING_ACTIVATION;
     }
 
     public Long getId() {
@@ -119,10 +121,6 @@ public class User {
 
     public String getPasswordHash() {
         return passwordHash;
-    }
-
-    public void setPasswordHash(String passwordHash) {
-        this.passwordHash = passwordHash;
     }
 
     public String getFirstName() {
@@ -207,6 +205,10 @@ public class User {
         this.lastLoginAt = lastLoginAt;
     }
 
+    public OffsetDateTime getPasswordChangedAt() {
+        return passwordChangedAt;
+    }
+
     public OffsetDateTime getCreatedAt() {
         return createdAt;
     }
@@ -229,5 +231,44 @@ public class User {
 
     public boolean hasRole(UserRole role) {
         return role != null && roles.contains(role);
+    }
+
+    public void activate(String passwordHash) {
+        if (status != UserStatus.PENDING_ACTIVATION) {
+            throw new IllegalStateException(
+                    "Only a pending account can be activated"
+            );
+        }
+
+        if (passwordHash == null || passwordHash.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Password hash is required for activation"
+            );
+        }
+
+        this.passwordHash = passwordHash;
+        this.passwordChangedAt = OffsetDateTime.now();
+        this.status = UserStatus.ACTIVE;
+        this.failedLoginAttempts = 0;
+        this.lockedUntil = null;
+    }
+
+    public void resetPassword(String passwordHash) {
+        if (status != UserStatus.ACTIVE) {
+            throw new IllegalStateException(
+                    "Only an active account can reset its password"
+            );
+        }
+
+        if (passwordHash == null || passwordHash.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Password hash is required for password reset"
+            );
+        }
+
+        this.passwordHash = passwordHash;
+        this.passwordChangedAt = OffsetDateTime.now();
+        this.failedLoginAttempts = 0;
+        this.lockedUntil = null;
     }
 }

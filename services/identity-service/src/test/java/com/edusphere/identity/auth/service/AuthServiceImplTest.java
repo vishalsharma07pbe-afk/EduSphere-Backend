@@ -4,7 +4,11 @@ import com.edusphere.identity.auth.dto.LoginRequest;
 import com.edusphere.identity.auth.dto.LoginResponse;
 import com.edusphere.identity.auth.exception.AccountNotActiveException;
 import com.edusphere.identity.auth.exception.InvalidCredentialsException;
+import com.edusphere.identity.auth.model.AuthenticationResult;
+import com.edusphere.identity.auth.refreshtoken.model.RefreshTokenRotationResult;
+import com.edusphere.identity.auth.refreshtoken.service.RefreshTokenService;
 import com.edusphere.identity.auth.security.JwtService;
+import com.edusphere.identity.common.exception.ResourceNotFoundException;
 import com.edusphere.identity.user.entity.User;
 import com.edusphere.identity.user.enums.UserRole;
 import com.edusphere.identity.user.enums.UserStatus;
@@ -32,6 +36,8 @@ class AuthServiceImplTest {
     private PasswordEncoder passwordEncoder;
     @Mock
     private JwtService jwtService;
+    @Mock
+    private RefreshTokenService refreshTokenService;
 
     private AuthServiceImpl authService;
 
@@ -40,7 +46,8 @@ class AuthServiceImplTest {
         authService = new AuthServiceImpl(
                 userRepository,
                 passwordEncoder,
-                jwtService
+                jwtService,
+                refreshTokenService
         );
     }
 
@@ -59,6 +66,7 @@ class AuthServiceImplTest {
         assertEquals("Invalid username or password", exception.getMessage());
         verify(passwordEncoder, never()).matches(anyString(), anyString());
         verify(jwtService, never()).generateAccessToken(any(User.class));
+        verifyNoInteractions(refreshTokenService);
     }
 
     @Test
@@ -78,6 +86,7 @@ class AuthServiceImplTest {
 
         assertEquals("Invalid username or password", exception.getMessage());
         verify(jwtService, never()).generateAccessToken(any(User.class));
+        verifyNoInteractions(refreshTokenService);
     }
 
     @Test
@@ -97,10 +106,11 @@ class AuthServiceImplTest {
 
         assertEquals("Account is not active", exception.getMessage());
         verify(jwtService, never()).generateAccessToken(any(User.class));
+        verifyNoInteractions(refreshTokenService);
     }
 
     @Test
-    void login_whenValid_returnsTokenAndUpdatesLoginState() {
+    void login_whenValid_returnsTokensAndUpdatesLoginState() {
         LoginRequest request = request();
         User user = user(UserStatus.ACTIVE);
         user.setFailedLoginAttempts(3);
@@ -109,12 +119,16 @@ class AuthServiceImplTest {
                 .thenReturn(Optional.of(user));
         when(passwordEncoder.matches("Teacher@123", "encoded-password"))
                 .thenReturn(true);
+        when(refreshTokenService.createRefreshToken(10L))
+                .thenReturn("refresh-token");
         when(jwtService.generateAccessToken(user)).thenReturn("jwt-token");
         when(jwtService.getAccessTokenExpirationSeconds()).thenReturn(3600L);
 
-        LoginResponse response = authService.login(request);
+        AuthenticationResult result = authService.login(request);
+        LoginResponse response = result.response();
 
         assertEquals("jwt-token", response.getAccessToken());
+        assertEquals("refresh-token", result.rawRefreshToken());
         assertEquals("Bearer", response.getTokenType());
         assertEquals(3600L, response.getExpiresIn());
         assertEquals(10L, response.getUserId());
@@ -123,6 +137,69 @@ class AuthServiceImplTest {
         assertEquals(Set.of("TEACHER", "HR"), response.getRoles());
         assertEquals(0, user.getFailedLoginAttempts());
         assertNotNull(user.getLastLoginAt());
+        verify(refreshTokenService).createRefreshToken(10L);
+    }
+
+    @Test
+    void refresh_whenUserMissing_throwsResourceNotFoundException() {
+        when(refreshTokenService.rotateRefreshToken("refresh-token"))
+                .thenReturn(new RefreshTokenRotationResult(
+                        10L,
+                        "rotated-refresh-token"
+                ));
+        when(userRepository.findById(10L)).thenReturn(Optional.empty());
+
+        assertThrows(
+                ResourceNotFoundException.class,
+                () -> authService.refresh("refresh-token")
+        );
+    }
+
+    @Test
+    void refresh_whenUserInactive_revokesAllAndThrowsAccountNotActiveException() {
+        User user = user(UserStatus.SUSPENDED);
+
+        when(refreshTokenService.rotateRefreshToken("refresh-token"))
+                .thenReturn(new RefreshTokenRotationResult(
+                        10L,
+                        "rotated-refresh-token"
+                ));
+        when(userRepository.findById(10L)).thenReturn(Optional.of(user));
+
+        AccountNotActiveException exception = assertThrows(
+                AccountNotActiveException.class,
+                () -> authService.refresh("refresh-token")
+        );
+
+        assertEquals("Account is not active", exception.getMessage());
+        verify(refreshTokenService).revokeAllForUser(10L);
+        verify(jwtService, never()).generateAccessToken(any());
+    }
+
+    @Test
+    void refresh_whenValid_returnsNewAccessTokenWithRotatedRefreshToken() {
+        User user = user(UserStatus.ACTIVE);
+
+        when(refreshTokenService.rotateRefreshToken("refresh-token"))
+                .thenReturn(new RefreshTokenRotationResult(
+                        10L,
+                        "rotated-refresh-token"
+                ));
+        when(userRepository.findById(10L)).thenReturn(Optional.of(user));
+        when(jwtService.generateAccessToken(user)).thenReturn("jwt-token");
+        when(jwtService.getAccessTokenExpirationSeconds()).thenReturn(3600L);
+
+        AuthenticationResult result = authService.refresh("refresh-token");
+
+        assertEquals("jwt-token", result.response().getAccessToken());
+        assertEquals("rotated-refresh-token", result.rawRefreshToken());
+    }
+
+    @Test
+    void logout_revokesRefreshToken() {
+        authService.logout("refresh-token");
+
+        verify(refreshTokenService).revokeRefreshToken("refresh-token");
     }
 
     private static LoginRequest request() {
@@ -137,11 +214,11 @@ class AuthServiceImplTest {
         User user = new User(
                 1L,
                 "teacher01",
-                "encoded-password",
                 "Rahul",
                 Set.of(UserRole.TEACHER, UserRole.HR)
         );
         ReflectionTestUtils.setField(user, "id", 10L);
+        ReflectionTestUtils.setField(user, "passwordHash", "encoded-password");
         user.setStatus(status);
         return user;
     }

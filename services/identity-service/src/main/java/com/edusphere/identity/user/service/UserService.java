@@ -46,4 +46,10 @@ public interface UserService {
             Long userId,
             UpdateUserStatusRequest request
     );
+
+    void resendActivationLink(
+            Long organizationId,
+            Long userId,
+            Long requestedByUserId
+    );
 }

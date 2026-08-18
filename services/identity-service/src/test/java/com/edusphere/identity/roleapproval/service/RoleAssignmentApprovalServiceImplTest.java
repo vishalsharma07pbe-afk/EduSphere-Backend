@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -47,6 +48,8 @@ class RoleAssignmentApprovalServiceImplTest {
     private RoleApprovalPolicy approvalPolicy;
     @Mock
     private RoleAssignmentApprovalMapper approvalMapper;
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     private RoleAssignmentApprovalServiceImpl service;
 
@@ -57,7 +60,8 @@ class RoleAssignmentApprovalServiceImplTest {
                 approvalRepository,
                 userRepository,
                 approvalPolicy,
-                approvalMapper
+                approvalMapper,
+                eventPublisher
         );
     }
 
@@ -345,8 +349,9 @@ class RoleAssignmentApprovalServiceImplTest {
             Set<UserRole> roles,
             UserStatus status
     ) {
-        User user = new User(1L, "user" + id, "hash", "User", roles);
+        User user = new User(1L, "user" + id, "User", roles);
         ReflectionTestUtils.setField(user, "id", id);
+        ReflectionTestUtils.setField(user, "passwordHash", "hash");
         user.setStatus(status);
         return user;
     }

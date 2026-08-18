@@ -29,6 +29,7 @@ build/
 !**/src/main/**/build/
 !**/src/test/**/build/
 src/main/resources/keys/private.pem
+src/main/resources/keys/public.pem
 
 ### VS Code ###
 .vscode/

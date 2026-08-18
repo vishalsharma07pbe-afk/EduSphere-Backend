@@ -23,14 +23,6 @@ public class CreateUserRequest {
     )
     private String username;
 
-    @NotBlank(message = "Password is required")
-    @Size(
-            min = 8,
-            max = 72,
-            message = "Password must be between 8 and 72 characters"
-    )
-    private String password;
-
     @NotBlank(message = "First name is required")
     @Size(max = 100, message = "First name cannot exceed 100 characters")
     private String firstName;
@@ -41,6 +33,7 @@ public class CreateUserRequest {
     @Size(max = 100, message = "Last name cannot exceed 100 characters")
     private String lastName;
 
+    @NotBlank(message = "Email is required")
     @Email(message = "Email must be valid")
     @Size(max = 150, message = "Email cannot exceed 150 characters")
     private String email;
@@ -60,7 +53,6 @@ public class CreateUserRequest {
     public CreateUserRequest(
             Long organizationId,
             String username,
-            String password,
             String firstName,
             String middleName,
             String lastName,
@@ -70,7 +62,6 @@ public class CreateUserRequest {
     ) {
         this.organizationId = organizationId;
         this.username = username;
-        this.password = password;
         this.firstName = firstName;
         this.middleName = middleName;
         this.lastName = lastName;
@@ -93,14 +84,6 @@ public class CreateUserRequest {
 
     public void setUsername(String username) {
         this.username = username;
-    }
-
-    public String getPassword() {
-        return password;
-    }
-
-    public void setPassword(String password) {
-        this.password = password;
     }
 
     public String getFirstName() {

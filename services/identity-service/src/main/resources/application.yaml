@@ -18,6 +18,18 @@ spring:
   flyway:
     enabled: true
 
+  mail:
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:1025}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: ${MAIL_SMTP_AUTH:false}
+          starttls:
+            enable: ${MAIL_STARTTLS_ENABLE:false}
+
 server:
   port: 8081
 
@@ -25,3 +37,31 @@ jwt:
   private-key: classpath:keys/private.pem
   public-key: classpath:keys/public.pem
   access-token-expiration: 900
+
+security:
+  activation-token:
+    expiration: 24h
+    resend-window: 24h
+    max-emails-per-window: 3
+
+  refresh-token:
+    expiration: 30d
+    cookie-name: edusphere_refresh
+    cookie-path: /api/v1/auth
+    secure: ${REFRESH_COOKIE_SECURE:false}
+    same-site: Strict
+
+  password-reset-token:
+    expiration: 1h
+    request-window: 24h
+    max-emails-per-window: 3
+    reset-window: 24h
+    max-resets-per-window: 1
+
+app:
+  activation:
+    base-url: ${ACTIVATION_BASE_URL:http://localhost:5173/activate}
+    from-address: ${ACTIVATION_EMAIL_FROM:no-reply@edusphere.com}
+  password-reset:
+    base-url: ${PASSWORD_RESET_BASE_URL:http://localhost:5173/reset-password}
+    from-address: ${PASSWORD_RESET_EMAIL_FROM:${ACTIVATION_EMAIL_FROM:no-reply@edusphere.com}}

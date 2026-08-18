@@ -78,7 +78,6 @@ public class UserServiceControllerTest {
                                 {
                                   "organizationId": 1,
                                   "username": "teacher01",
-                                  "password": "Teacher@123",
                                   "firstName": "Rahul",
                                   "lastName": "Sharma",
                                   "email": "teacher@edusphere.com",
@@ -109,8 +108,8 @@ public class UserServiceControllerTest {
                                 {
                                   "organizationId": 2,
                                   "username": "teacher01",
-                                  "password": "Teacher@123",
                                   "firstName": "Rahul",
+                                  "email": "teacher@edusphere.com",
                                   "roles": ["TEACHER"]
                                 }
                                 """))
@@ -135,7 +134,6 @@ public class UserServiceControllerTest {
                                 {
                                   "organizationId": 1,
                                   "username": "ab",
-                                  "password": "short",
                                   "firstName": "",
                                   "email": "invalid-email",
                                   "roles": []
@@ -146,8 +144,6 @@ public class UserServiceControllerTest {
                         .value("Request validation failed"))
                 .andExpect(jsonPath("$.validationErrors.username").value(
                         "Username must be between 3 and 100 characters"))
-                .andExpect(jsonPath("$.validationErrors.password").value(
-                        "Password must be between 8 and 72 characters"))
                 .andExpect(jsonPath("$.validationErrors.firstName").value(
                         "First name is required"))
                 .andExpect(jsonPath("$.validationErrors.email").value(
@@ -171,8 +167,8 @@ public class UserServiceControllerTest {
                                 {
                                   "organizationId": 1,
                                   "username": "teacher01",
-                                  "password": "Teacher@123",
                                   "firstName": "Rahul",
+                                  "email": "teacher@edusphere.com",
                                   "roles": ["TEACHER"]
                                 }
                                 """))

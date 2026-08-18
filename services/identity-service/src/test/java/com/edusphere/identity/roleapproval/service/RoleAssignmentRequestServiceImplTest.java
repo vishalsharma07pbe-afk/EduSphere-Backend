@@ -290,8 +290,9 @@ class RoleAssignmentRequestServiceImplTest {
             Set<UserRole> roles,
             UserStatus status
     ) {
-        User user = new User(1L, "user" + id, "hash", "User", roles);
+        User user = new User(1L, "user" + id, "User", roles);
         ReflectionTestUtils.setField(user, "id", id);
+        ReflectionTestUtils.setField(user, "passwordHash", "hash");
         user.setStatus(status);
         return user;
     }

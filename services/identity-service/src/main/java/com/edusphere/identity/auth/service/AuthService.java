@@ -1,8 +1,19 @@
 package com.edusphere.identity.auth.service;
 
 import com.edusphere.identity.auth.dto.LoginRequest;
-import com.edusphere.identity.auth.dto.LoginResponse;
+import com.edusphere.identity.auth.model.AuthenticationResult;
 
 public interface AuthService {
-    LoginResponse login(LoginRequest request);
+
+    AuthenticationResult login(
+            LoginRequest request
+    );
+
+    AuthenticationResult refresh(
+            String rawRefreshToken
+    );
+
+    void logout(
+            String rawRefreshToken
+    );
 }

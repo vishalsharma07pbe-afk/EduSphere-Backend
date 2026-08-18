@@ -12,6 +12,10 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import com.edusphere.identity.roleapproval.exception.InvalidRoleRequestException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import com.edusphere.identity.auth.activation.exception.InvalidActivationTokenException;
+import com.edusphere.identity.auth.activation.exception.PasswordMismatchException;
+import com.edusphere.identity.auth.passwordreset.exception.InvalidPasswordResetTokenException;
+import com.edusphere.identity.auth.refreshtoken.exception.InvalidRefreshTokenException;
 import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -196,6 +200,44 @@ public class GlobalExceptionHandler {
 
         return ResponseEntity
                 .status(HttpStatus.CONFLICT)
+                .body(response);
+    }
+
+    @ExceptionHandler({
+            InvalidActivationTokenException.class,
+            InvalidPasswordResetTokenException.class,
+            PasswordMismatchException.class
+    })
+    public ResponseEntity<ApiErrorResponse> handleActivationValidationException(
+            RuntimeException exception,
+            HttpServletRequest request
+    ) {
+        ApiErrorResponse response = createErrorResponse(
+                HttpStatus.BAD_REQUEST,
+                exception.getMessage(),
+                request.getRequestURI(),
+                null
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(response);
+    }
+
+    @ExceptionHandler(InvalidRefreshTokenException.class)
+    public ResponseEntity<ApiErrorResponse> handleInvalidRefreshToken(
+            InvalidRefreshTokenException exception,
+            HttpServletRequest request
+    ) {
+        ApiErrorResponse response = createErrorResponse(
+                HttpStatus.UNAUTHORIZED,
+                exception.getMessage(),
+                request.getRequestURI(),
+                null
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.UNAUTHORIZED)
                 .body(response);
     }
 
