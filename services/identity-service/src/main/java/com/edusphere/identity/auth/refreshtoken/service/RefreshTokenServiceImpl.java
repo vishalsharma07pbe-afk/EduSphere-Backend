@@ -56,15 +56,20 @@ public class RefreshTokenServiceImpl
 
         String rawToken = tokenCodec.generateRawToken();
         String tokenHash = tokenCodec.hash(rawToken);
+        OffsetDateTime currentTime = OffsetDateTime.now();
+        OffsetDateTime familyExpiresAt = currentTime.plus(
+                tokenProperties.getAbsoluteSessionLifetime()
+        );
 
         RefreshToken refreshToken =
                 new RefreshToken(
                         userId,
                         UUID.randomUUID(),
                         tokenHash,
-                        OffsetDateTime.now().plus(
+                        currentTime.plus(
                                 tokenProperties.getExpiration()
-                        )
+                        ),
+                        familyExpiresAt
                 );
 
         refreshTokenRepository.save(refreshToken);
@@ -112,6 +117,15 @@ public class RefreshTokenServiceImpl
             throw invalidToken();
         }
 
+        if (existingToken.isFamilyExpired(currentTime)) {
+            revokeTokenFamily(
+                    existingToken.getTokenFamilyId(),
+                    currentTime
+            );
+
+            throw invalidToken();
+        }
+
         User user = userRepository
                 .findById(existingToken.getUserId())
                 .orElseThrow(this::invalidToken);
@@ -131,14 +145,24 @@ public class RefreshTokenServiceImpl
         String replacementTokenHash =
                 tokenCodec.hash(replacementRawToken);
 
+        OffsetDateTime familyExpiresAt =
+                existingToken.getFamilyExpiresAt();
+
+        OffsetDateTime rollingExpiry =
+                currentTime.plus(tokenProperties.getExpiration());
+
+        OffsetDateTime effectiveExpiry =
+                rollingExpiry.isBefore(familyExpiresAt)
+                        ? rollingExpiry
+                        : familyExpiresAt;
+
         RefreshToken replacementToken =
                 new RefreshToken(
                         user.getId(),
                         existingToken.getTokenFamilyId(),
                         replacementTokenHash,
-                        currentTime.plus(
-                                tokenProperties.getExpiration()
-                        )
+                        effectiveExpiry,
+                        familyExpiresAt
                 );
 
         existingToken.rotate(

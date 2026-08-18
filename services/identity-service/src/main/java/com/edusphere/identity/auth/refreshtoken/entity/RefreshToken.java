@@ -44,6 +44,9 @@ public class RefreshToken {
     @Column(name = "expires_at", nullable = false)
     private OffsetDateTime expiresAt;
 
+    @Column(name = "family_expires_at", nullable = false)
+    private OffsetDateTime familyExpiresAt;
+
     @Column(name = "revoked_at")
     private OffsetDateTime revokedAt;
 
@@ -68,12 +71,14 @@ public class RefreshToken {
             Long userId,
             UUID tokenFamilyId,
             String tokenHash,
-            OffsetDateTime expiresAt
+            OffsetDateTime expiresAt,
+            OffsetDateTime familyExpiresAt
     ) {
         this.userId = userId;
         this.tokenFamilyId = tokenFamilyId;
         this.tokenHash = tokenHash;
         this.expiresAt = expiresAt;
+        this.familyExpiresAt = familyExpiresAt;
     }
 
     public Long getId() {
@@ -100,6 +105,10 @@ public class RefreshToken {
         return expiresAt;
     }
 
+    public OffsetDateTime getFamilyExpiresAt() {
+        return familyExpiresAt;
+    }
+
     public OffsetDateTime getRevokedAt() {
         return revokedAt;
     }
@@ -118,6 +127,10 @@ public class RefreshToken {
 
     public boolean isExpired(OffsetDateTime currentTime) {
         return !expiresAt.isAfter(currentTime);
+    }
+
+    public boolean isFamilyExpired(OffsetDateTime currentTime) {
+        return !familyExpiresAt.isAfter(currentTime);
     }
 
     public boolean isValidAt(OffsetDateTime currentTime) {

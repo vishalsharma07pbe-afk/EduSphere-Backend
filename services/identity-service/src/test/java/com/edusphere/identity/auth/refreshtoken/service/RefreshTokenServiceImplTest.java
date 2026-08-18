@@ -45,6 +45,7 @@ class RefreshTokenServiceImplTest {
         RefreshTokenProperties tokenProperties =
                 new RefreshTokenProperties();
         tokenProperties.setExpiration(Duration.ofDays(30));
+        tokenProperties.setAbsoluteSessionLifetime(Duration.ofDays(90));
 
         service = new RefreshTokenServiceImpl(
                 refreshTokenRepository,
@@ -55,7 +56,7 @@ class RefreshTokenServiceImplTest {
     }
 
     @Test
-    void createRefreshToken_whenUserActive_savesHashedToken() {
+    void createRefreshToken_whenUserActive_savesHashedTokenWithFamilyExpiry() {
         when(userRepository.findById(10L))
                 .thenReturn(Optional.of(user(UserStatus.ACTIVE)));
         when(tokenCodec.generateRawToken()).thenReturn("raw-token");
@@ -72,6 +73,41 @@ class RefreshTokenServiceImplTest {
         assertEquals("token-hash", tokenCaptor.getValue().getTokenHash());
         assertTrue(tokenCaptor.getValue().getExpiresAt()
                 .isAfter(OffsetDateTime.now()));
+        assertTrue(tokenCaptor.getValue().getFamilyExpiresAt()
+                .isAfter(OffsetDateTime.now().plusDays(89)));
+        assertTrue(tokenCaptor.getValue().getFamilyExpiresAt()
+                .isBefore(OffsetDateTime.now().plusDays(91)));
+    }
+
+    @Test
+    void createRefreshToken_whenSeparateLogins_createIndependentFamilies() {
+        when(userRepository.findById(10L))
+                .thenReturn(Optional.of(user(UserStatus.ACTIVE)));
+        when(tokenCodec.generateRawToken())
+                .thenReturn("first-raw")
+                .thenReturn("second-raw");
+        when(tokenCodec.hash("first-raw")).thenReturn("first-hash");
+        when(tokenCodec.hash("second-raw")).thenReturn("second-hash");
+
+        service.createRefreshToken(10L);
+        service.createRefreshToken(10L);
+
+        ArgumentCaptor<RefreshToken> tokenCaptor =
+                ArgumentCaptor.forClass(RefreshToken.class);
+        verify(refreshTokenRepository, times(2))
+                .save(tokenCaptor.capture());
+
+        RefreshToken first = tokenCaptor.getAllValues().get(0);
+        RefreshToken second = tokenCaptor.getAllValues().get(1);
+
+        assertNotEquals(first.getTokenFamilyId(),
+                second.getTokenFamilyId());
+        assertNotSame(first.getFamilyExpiresAt(),
+                second.getFamilyExpiresAt());
+        assertTrue(first.getFamilyExpiresAt()
+                .isAfter(OffsetDateTime.now().plusDays(89)));
+        assertTrue(second.getFamilyExpiresAt()
+                .isAfter(OffsetDateTime.now().plusDays(89)));
     }
 
     @Test
@@ -102,7 +138,8 @@ class RefreshTokenServiceImplTest {
     @Test
     void rotateRefreshToken_whenExpired_revokesAndThrowsInvalidTokenException() {
         RefreshToken token = refreshToken(
-                OffsetDateTime.now().minusSeconds(1)
+                OffsetDateTime.now().minusSeconds(1),
+                OffsetDateTime.now().plusDays(90)
         );
 
         when(tokenCodec.hash("raw-token")).thenReturn("token-hash");
@@ -125,7 +162,8 @@ class RefreshTokenServiceImplTest {
                         10L,
                         familyId,
                         "token-hash",
-                        OffsetDateTime.now().plusHours(1)
+                        OffsetDateTime.now().plusHours(1),
+                        OffsetDateTime.now().plusDays(90)
                 );
         reusedToken.rotate(OffsetDateTime.now(), "replacement-hash");
 
@@ -134,7 +172,8 @@ class RefreshTokenServiceImplTest {
                         10L,
                         familyId,
                         "active-token-hash",
-                        OffsetDateTime.now().plusHours(1)
+                        OffsetDateTime.now().plusHours(1),
+                        OffsetDateTime.now().plusDays(90)
                 );
 
         when(tokenCodec.hash("raw-token")).thenReturn("token-hash");
@@ -154,13 +193,17 @@ class RefreshTokenServiceImplTest {
     @Test
     void rotateRefreshToken_whenUserInactive_revokesTokenFamilyAndThrows() {
         RefreshToken token =
-                refreshToken(OffsetDateTime.now().plusHours(1));
+                refreshToken(
+                        OffsetDateTime.now().plusHours(1),
+                        OffsetDateTime.now().plusDays(90)
+                );
         RefreshToken activeFamilyToken =
                 new RefreshToken(
                         10L,
                         token.getTokenFamilyId(),
                         "active-token-hash",
-                        OffsetDateTime.now().plusHours(1)
+                        OffsetDateTime.now().plusHours(1),
+                        token.getFamilyExpiresAt()
                 );
 
         when(tokenCodec.hash("raw-token")).thenReturn("token-hash");
@@ -183,7 +226,10 @@ class RefreshTokenServiceImplTest {
     @Test
     void rotateRefreshToken_whenValid_rotatesAndSavesReplacement() {
         RefreshToken token =
-                refreshToken(OffsetDateTime.now().plusHours(1));
+                refreshToken(
+                        OffsetDateTime.now().plusHours(1),
+                        OffsetDateTime.now().plusDays(90)
+                );
 
         when(tokenCodec.hash("raw-token")).thenReturn("token-hash");
         when(refreshTokenRepository.findByTokenHash("token-hash"))
@@ -207,6 +253,122 @@ class RefreshTokenServiceImplTest {
         verify(refreshTokenRepository).save(replacementCaptor.capture());
         assertEquals(token.getTokenFamilyId(),
                 replacementCaptor.getValue().getTokenFamilyId());
+        assertEquals(token.getFamilyExpiresAt(),
+                replacementCaptor.getValue().getFamilyExpiresAt());
+        assertTrue(replacementCaptor.getValue().getExpiresAt()
+                .isAfter(OffsetDateTime.now().plusDays(29)));
+    }
+
+    @Test
+    void rotateRefreshToken_whenFamilyExpiryNear_capsReplacementExpiry() {
+        OffsetDateTime familyExpiresAt =
+                OffsetDateTime.now().plusDays(5);
+        RefreshToken token =
+                refreshToken(
+                        OffsetDateTime.now().plusHours(1),
+                        familyExpiresAt
+                );
+
+        when(tokenCodec.hash("raw-token")).thenReturn("token-hash");
+        when(refreshTokenRepository.findByTokenHash("token-hash"))
+                .thenReturn(Optional.of(token));
+        when(userRepository.findById(10L))
+                .thenReturn(Optional.of(user(UserStatus.ACTIVE)));
+        when(tokenCodec.generateRawToken()).thenReturn("replacement-raw");
+        when(tokenCodec.hash("replacement-raw"))
+                .thenReturn("replacement-hash");
+
+        service.rotateRefreshToken("raw-token");
+
+        ArgumentCaptor<RefreshToken> replacementCaptor =
+                ArgumentCaptor.forClass(RefreshToken.class);
+        verify(refreshTokenRepository).save(replacementCaptor.capture());
+
+        assertEquals(familyExpiresAt,
+                replacementCaptor.getValue().getExpiresAt());
+        assertEquals(familyExpiresAt,
+                replacementCaptor.getValue().getFamilyExpiresAt());
+    }
+
+    @Test
+    void rotateRefreshToken_whenBeforeFamilyExpiry_succeeds() {
+        RefreshToken token =
+                refreshToken(
+                        OffsetDateTime.now().plusHours(1),
+                        OffsetDateTime.now().plusSeconds(30)
+                );
+
+        when(tokenCodec.hash("raw-token")).thenReturn("token-hash");
+        when(refreshTokenRepository.findByTokenHash("token-hash"))
+                .thenReturn(Optional.of(token));
+        when(userRepository.findById(10L))
+                .thenReturn(Optional.of(user(UserStatus.ACTIVE)));
+        when(tokenCodec.generateRawToken()).thenReturn("replacement-raw");
+        when(tokenCodec.hash("replacement-raw"))
+                .thenReturn("replacement-hash");
+
+        RefreshTokenRotationResult result =
+                service.rotateRefreshToken("raw-token");
+
+        assertEquals(10L, result.userId());
+        assertEquals("replacement-raw", result.rawRefreshToken());
+    }
+
+    @Test
+    void rotateRefreshToken_whenFamilyExpired_revokesFamilyAndThrows() {
+        RefreshToken token =
+                refreshToken(
+                        OffsetDateTime.now().plusHours(1),
+                        OffsetDateTime.now().minusSeconds(1)
+                );
+        RefreshToken activeFamilyToken =
+                new RefreshToken(
+                        10L,
+                        token.getTokenFamilyId(),
+                        "active-token-hash",
+                        OffsetDateTime.now().plusHours(1),
+                        token.getFamilyExpiresAt()
+                );
+
+        when(tokenCodec.hash("raw-token")).thenReturn("token-hash");
+        when(refreshTokenRepository.findByTokenHash("token-hash"))
+                .thenReturn(Optional.of(token));
+        when(refreshTokenRepository.findAllByTokenFamilyIdAndRevokedAtIsNull(
+                token.getTokenFamilyId()
+        )).thenReturn(List.of(token, activeFamilyToken));
+
+        assertThrows(
+                InvalidRefreshTokenException.class,
+                () -> service.rotateRefreshToken("raw-token")
+        );
+
+        assertTrue(token.isRevoked());
+        assertTrue(activeFamilyToken.isRevoked());
+        verify(userRepository, never()).findById(anyLong());
+    }
+
+    @Test
+    void rotateRefreshToken_whenFamilyExpiresNow_revokesFamilyAndThrows() {
+        RefreshToken token =
+                refreshToken(
+                        OffsetDateTime.now().plusHours(1),
+                        OffsetDateTime.now()
+                );
+
+        when(tokenCodec.hash("raw-token")).thenReturn("token-hash");
+        when(refreshTokenRepository.findByTokenHash("token-hash"))
+                .thenReturn(Optional.of(token));
+        when(refreshTokenRepository.findAllByTokenFamilyIdAndRevokedAtIsNull(
+                token.getTokenFamilyId()
+        )).thenReturn(List.of(token));
+
+        assertThrows(
+                InvalidRefreshTokenException.class,
+                () -> service.rotateRefreshToken("raw-token")
+        );
+
+        assertTrue(token.isRevoked());
+        verify(tokenCodec, never()).generateRawToken();
     }
 
     @Test
@@ -220,7 +382,10 @@ class RefreshTokenServiceImplTest {
     @Test
     void revokeRefreshToken_whenTokenExists_revokesIt() {
         RefreshToken token =
-                refreshToken(OffsetDateTime.now().plusHours(1));
+                refreshToken(
+                        OffsetDateTime.now().plusHours(1),
+                        OffsetDateTime.now().plusDays(90)
+                );
 
         when(tokenCodec.hash("raw-token")).thenReturn("token-hash");
         when(refreshTokenRepository.findByTokenHash("token-hash"))
@@ -234,9 +399,15 @@ class RefreshTokenServiceImplTest {
     @Test
     void revokeAllForUser_revokesAllActiveTokens() {
         RefreshToken first =
-                refreshToken(OffsetDateTime.now().plusHours(1));
+                refreshToken(
+                        OffsetDateTime.now().plusHours(1),
+                        OffsetDateTime.now().plusDays(90)
+                );
         RefreshToken second =
-                refreshToken(OffsetDateTime.now().plusHours(1));
+                refreshToken(
+                        OffsetDateTime.now().plusHours(1),
+                        OffsetDateTime.now().plusDays(90)
+                );
 
         when(refreshTokenRepository.findAllByUserIdAndRevokedAtIsNull(10L))
                 .thenReturn(List.of(first, second));
@@ -247,12 +418,16 @@ class RefreshTokenServiceImplTest {
         assertTrue(second.isRevoked());
     }
 
-    private static RefreshToken refreshToken(OffsetDateTime expiresAt) {
+    private static RefreshToken refreshToken(
+            OffsetDateTime expiresAt,
+            OffsetDateTime familyExpiresAt
+    ) {
         return new RefreshToken(
                 10L,
                 UUID.randomUUID(),
                 "token-hash",
-                expiresAt
+                expiresAt,
+                familyExpiresAt
         );
     }
 

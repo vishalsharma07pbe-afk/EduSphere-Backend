@@ -10,6 +10,7 @@ import java.time.Duration;
 public class RefreshTokenProperties {
 
     private Duration expiration = Duration.ofDays(30);
+    private Duration absoluteSessionLifetime = Duration.ofDays(90);
     private String cookieName = "edusphere_refresh";
     private String cookiePath = "/api/v1/auth";
     private boolean secure = false;
@@ -21,6 +22,16 @@ public class RefreshTokenProperties {
 
     public void setExpiration(Duration expiration) {
         this.expiration = expiration;
+    }
+
+    public Duration getAbsoluteSessionLifetime() {
+        return absoluteSessionLifetime;
+    }
+
+    public void setAbsoluteSessionLifetime(
+            Duration absoluteSessionLifetime
+    ) {
+        this.absoluteSessionLifetime = absoluteSessionLifetime;
     }
 
     public String getCookieName() {

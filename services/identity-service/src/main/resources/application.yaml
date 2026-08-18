@@ -46,6 +46,7 @@ security:
 
   refresh-token:
     expiration: 30d
+    absolute-session-lifetime: 90d
     cookie-name: edusphere_refresh
     cookie-path: /api/v1/auth
     secure: ${REFRESH_COOKIE_SECURE:false}
