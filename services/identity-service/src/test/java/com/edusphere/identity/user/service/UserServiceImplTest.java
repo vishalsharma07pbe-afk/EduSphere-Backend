@@ -422,6 +422,31 @@ public class UserServiceImplTest {
     }
 
     @Test
+    void updateUserStatus_whenSettingActive_clearsLoginLock() {
+        UpdateUserStatusRequest request =
+                new UpdateUserStatusRequest(UserStatus.ACTIVE);
+        User user = user(1L, "teacher01", "teacher@edusphere.com");
+        user.setStatus(UserStatus.ACTIVE);
+        user.setFailedLoginAttempts(2);
+        user.setLockedUntil(java.time.OffsetDateTime.now().plusYears(1));
+        ReflectionTestUtils.setField(user, "loginLockLevel", 3);
+        UserResponse expectedResponse = response(10L, 1L, "teacher01");
+
+        when(userRepository.findByOrganizationIdAndId(1L, 10L))
+                .thenReturn(Optional.of(user));
+        when(userRepository.save(user)).thenReturn(user);
+        when(userMapper.toResponse(user)).thenReturn(expectedResponse);
+
+        UserResponse actualResponse =
+                userService.updateUserStatus(1L, 10L, request);
+
+        assertSame(expectedResponse, actualResponse);
+        assertEquals(0, user.getFailedLoginAttempts());
+        assertEquals(0, user.getLoginLockLevel());
+        assertNull(user.getLockedUntil());
+    }
+
+    @Test
     void updateUserRoles_whenUserMissing_throwsResourceNotFoundException() {
         UpdateUserRolesRequest request =
                 new UpdateUserRolesRequest(Set.of(UserRole.ADMIN));

@@ -2,8 +2,11 @@ package com.edusphere.identity.auth.service;
 
 import com.edusphere.identity.auth.dto.LoginRequest;
 import com.edusphere.identity.auth.dto.LoginResponse;
+import com.edusphere.identity.auth.exception.AccountLockedException;
 import com.edusphere.identity.auth.exception.AccountNotActiveException;
 import com.edusphere.identity.auth.exception.InvalidCredentialsException;
+import com.edusphere.identity.auth.lockout.LoginLockoutProperties;
+import com.edusphere.identity.auth.lockout.LoginLockoutService;
 import com.edusphere.identity.auth.model.AuthenticationResult;
 import com.edusphere.identity.auth.refreshtoken.model.RefreshTokenRotationResult;
 import com.edusphere.identity.auth.refreshtoken.service.RefreshTokenService;
@@ -21,6 +24,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Duration;
+import java.time.OffsetDateTime;
 import java.util.Optional;
 import java.util.Set;
 
@@ -43,11 +48,20 @@ class AuthServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        LoginLockoutProperties lockoutProperties =
+                new LoginLockoutProperties();
+        lockoutProperties.setFirstFailureThreshold(5);
+        lockoutProperties.setEscalatedFailureThreshold(3);
+        lockoutProperties.setFirstLockDuration(Duration.ofMinutes(30));
+        lockoutProperties.setSecondLockDuration(Duration.ofDays(30));
+        lockoutProperties.setFinalLockDuration(Duration.ofDays(365));
+
         authService = new AuthServiceImpl(
                 userRepository,
                 passwordEncoder,
                 jwtService,
-                refreshTokenService
+                refreshTokenService,
+                new LoginLockoutService(lockoutProperties)
         );
     }
 
@@ -85,8 +99,126 @@ class AuthServiceImplTest {
         );
 
         assertEquals("Invalid username or password", exception.getMessage());
+        assertEquals(1, user.getFailedLoginAttempts());
         verify(jwtService, never()).generateAccessToken(any(User.class));
         verifyNoInteractions(refreshTokenService);
+    }
+
+    @Test
+    void login_whenFifthBadPassword_locksAccountForThirtyMinutes() {
+        LoginRequest request = request();
+        User user = user(UserStatus.ACTIVE);
+        user.setFailedLoginAttempts(4);
+
+        when(userRepository.findByOrganizationIdAndUsername(1L, "teacher01"))
+                .thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("Teacher@123", "encoded-password"))
+                .thenReturn(false);
+
+        AccountLockedException exception = assertThrows(
+                AccountLockedException.class,
+                () -> authService.login(request)
+        );
+
+        assertTrue(exception.getMessage().startsWith(
+                "Account is locked until "
+        ));
+        assertEquals(0, user.getFailedLoginAttempts());
+        assertEquals(1, user.getLoginLockLevel());
+        assertNotNull(user.getLockedUntil());
+        assertTrue(user.getLockedUntil().isAfter(
+                OffsetDateTime.now().plusMinutes(29)
+        ));
+        verifyNoInteractions(refreshTokenService);
+    }
+
+    @Test
+    void login_whenAccountLocked_blocksLoginWithoutCheckingPassword() {
+        LoginRequest request = request();
+        User user = user(UserStatus.ACTIVE);
+        user.setLockedUntil(OffsetDateTime.now().plusMinutes(10));
+
+        when(userRepository.findByOrganizationIdAndUsername(1L, "teacher01"))
+                .thenReturn(Optional.of(user));
+
+        assertThrows(
+                AccountLockedException.class,
+                () -> authService.login(request)
+        );
+
+        verifyNoInteractions(passwordEncoder);
+        verifyNoInteractions(refreshTokenService);
+    }
+
+    @Test
+    void login_whenLockExpired_allowsSuccessfulLoginAndClearsFailures() {
+        LoginRequest request = request();
+        User user = user(UserStatus.ACTIVE);
+        user.setFailedLoginAttempts(2);
+        user.setLockedUntil(OffsetDateTime.now().minusMinutes(1));
+
+        when(userRepository.findByOrganizationIdAndUsername(1L, "teacher01"))
+                .thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("Teacher@123", "encoded-password"))
+                .thenReturn(true);
+        when(refreshTokenService.createRefreshToken(10L))
+                .thenReturn("refresh-token");
+        when(jwtService.generateAccessToken(user)).thenReturn("jwt-token");
+        when(jwtService.getAccessTokenExpirationSeconds()).thenReturn(3600L);
+
+        AuthenticationResult result = authService.login(request);
+
+        assertEquals("jwt-token", result.response().getAccessToken());
+        assertEquals(0, user.getFailedLoginAttempts());
+        assertNull(user.getLockedUntil());
+    }
+
+    @Test
+    void login_afterFirstLock_whenThirdBadPassword_locksAccountForOneMonth() {
+        LoginRequest request = request();
+        User user = user(UserStatus.ACTIVE);
+        ReflectionTestUtils.setField(user, "loginLockLevel", 1);
+        user.setFailedLoginAttempts(2);
+
+        when(userRepository.findByOrganizationIdAndUsername(1L, "teacher01"))
+                .thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("Teacher@123", "encoded-password"))
+                .thenReturn(false);
+
+        assertThrows(
+                AccountLockedException.class,
+                () -> authService.login(request)
+        );
+
+        assertEquals(0, user.getFailedLoginAttempts());
+        assertEquals(2, user.getLoginLockLevel());
+        assertTrue(user.getLockedUntil().isAfter(
+                OffsetDateTime.now().plusDays(27)
+        ));
+    }
+
+    @Test
+    void login_afterSecondLock_whenThirdBadPassword_locksAccountForOneYear() {
+        LoginRequest request = request();
+        User user = user(UserStatus.ACTIVE);
+        ReflectionTestUtils.setField(user, "loginLockLevel", 2);
+        user.setFailedLoginAttempts(2);
+
+        when(userRepository.findByOrganizationIdAndUsername(1L, "teacher01"))
+                .thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("Teacher@123", "encoded-password"))
+                .thenReturn(false);
+
+        assertThrows(
+                AccountLockedException.class,
+                () -> authService.login(request)
+        );
+
+        assertEquals(0, user.getFailedLoginAttempts());
+        assertEquals(3, user.getLoginLockLevel());
+        assertTrue(user.getLockedUntil().isAfter(
+                OffsetDateTime.now().plusDays(360)
+        ));
     }
 
     @Test

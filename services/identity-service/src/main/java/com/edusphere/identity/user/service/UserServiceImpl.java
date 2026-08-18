@@ -397,6 +397,10 @@ public class UserServiceImpl implements UserService {
 
         user.setStatus(request.getStatus());
 
+        if (request.getStatus() == UserStatus.ACTIVE) {
+            user.clearLoginLock();
+        }
+
         User updatedUser = userRepository.save(user);
 
         return userMapper.toResponse(updatedUser);

@@ -4,6 +4,7 @@ import com.edusphere.identity.auth.dto.LoginRequest;
 import com.edusphere.identity.auth.dto.LoginResponse;
 import com.edusphere.identity.auth.exception.AccountNotActiveException;
 import com.edusphere.identity.auth.exception.InvalidCredentialsException;
+import com.edusphere.identity.auth.lockout.LoginLockoutService;
 import com.edusphere.identity.auth.model.AuthenticationResult;
 import com.edusphere.identity.auth.refreshtoken.model.RefreshTokenRotationResult;
 import com.edusphere.identity.auth.refreshtoken.service.RefreshTokenService;
@@ -24,21 +25,26 @@ import java.util.stream.Collectors;
 @Service
 public class AuthServiceImpl implements AuthService {
 
+    private static final String INVALID_CREDENTIALS_MESSAGE =
+            "Invalid username or password";
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final RefreshTokenService refreshTokenService;
+    private final LoginLockoutService loginLockoutService;
 
     public AuthServiceImpl(
             UserRepository userRepository,
             PasswordEncoder passwordEncoder,
             JwtService jwtService,
-            RefreshTokenService refreshTokenService
+            RefreshTokenService refreshTokenService,
+            LoginLockoutService loginLockoutService
     ) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.refreshTokenService = refreshTokenService;
+        this.loginLockoutService = loginLockoutService;
     }
 
     @Override
@@ -52,8 +58,12 @@ public class AuthServiceImpl implements AuthService {
                         request.getUsername()
                 )
                 .orElseThrow(() -> new InvalidCredentialsException(
-                        "Invalid username or password"
+                        INVALID_CREDENTIALS_MESSAGE
                 ));
+
+        OffsetDateTime currentTime = OffsetDateTime.now();
+
+        loginLockoutService.checkLoginAllowed(user, currentTime);
 
         boolean passwordMatches =
                 user.getPasswordHash() != null
@@ -63,9 +73,7 @@ public class AuthServiceImpl implements AuthService {
                 );
 
         if (!passwordMatches) {
-            throw new InvalidCredentialsException(
-                    "Invalid username or password"
-            );
+            loginLockoutService.recordFailedLogin(user, currentTime);
         }
 
         if (user.getStatus() != UserStatus.ACTIVE) {
@@ -74,8 +82,8 @@ public class AuthServiceImpl implements AuthService {
             );
         }
 
-        user.setFailedLoginAttempts(0);
-        user.setLastLoginAt(OffsetDateTime.now());
+        loginLockoutService.recordSuccessfulLogin(user);
+        user.setLastLoginAt(currentTime);
 
         String rawRefreshToken =
                 refreshTokenService.createRefreshToken(
@@ -155,4 +163,5 @@ public class AuthServiceImpl implements AuthService {
                 rawRefreshToken
         );
     }
+
 }

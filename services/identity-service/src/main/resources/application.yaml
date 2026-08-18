@@ -57,6 +57,14 @@ security:
     max-emails-per-window: 3
     reset-window: 24h
     max-resets-per-window: 1
+  login-lockout:
+    first-failure-threshold: 5
+    escalated-failure-threshold: 3
+    first-lock-duration: 30m
+    second-lock-duration: 30d
+    final-lock-duration: 365d
+    locked-message-prefix: "Account is locked until "
+    locked-message-suffix: ". Please contact an admin to unlock sooner."
 
 app:
   activation:

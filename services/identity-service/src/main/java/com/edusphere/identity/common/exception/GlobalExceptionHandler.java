@@ -1,5 +1,6 @@
 package com.edusphere.identity.common.exception;
 
+import com.edusphere.identity.auth.exception.AccountLockedException;
 import com.edusphere.identity.auth.exception.AccountNotActiveException;
 import com.edusphere.identity.auth.exception.InvalidCredentialsException;
 import com.edusphere.identity.roleapproval.exception.ApprovalNotAllowedException;
@@ -132,6 +133,23 @@ public class GlobalExceptionHandler {
 
         return ResponseEntity
                 .status(HttpStatus.FORBIDDEN)
+                .body(response);
+    }
+
+    @ExceptionHandler(AccountLockedException.class)
+    public ResponseEntity<ApiErrorResponse> handleAccountLockedException(
+            AccountLockedException exception,
+            HttpServletRequest request
+    ) {
+        ApiErrorResponse response = createErrorResponse(
+                HttpStatus.LOCKED,
+                exception.getMessage(),
+                request.getRequestURI(),
+                null
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.LOCKED)
                 .body(response);
     }
 

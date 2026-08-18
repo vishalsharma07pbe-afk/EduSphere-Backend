@@ -66,6 +66,9 @@ public class User {
     @Column(name = "failed_login_attempts", nullable = false)
     private int failedLoginAttempts = 0;
 
+    @Column(name = "login_lock_level", nullable = false)
+    private int loginLockLevel = 0;
+
     @Column(name = "locked_until")
     private OffsetDateTime lockedUntil;
 
@@ -189,12 +192,39 @@ public class User {
         this.failedLoginAttempts = failedLoginAttempts;
     }
 
+    public int getLoginLockLevel() {
+        return loginLockLevel;
+    }
+
     public OffsetDateTime getLockedUntil() {
         return lockedUntil;
     }
 
     public void setLockedUntil(OffsetDateTime lockedUntil) {
         this.lockedUntil = lockedUntil;
+    }
+
+    public void recordFailedLoginAttempt() {
+        failedLoginAttempts++;
+    }
+
+    public void lockLoginUntil(
+            OffsetDateTime lockedUntil
+    ) {
+        this.loginLockLevel++;
+        this.failedLoginAttempts = 0;
+        this.lockedUntil = lockedUntil;
+    }
+
+    public boolean isLoginLockedAt(OffsetDateTime currentTime) {
+        return lockedUntil != null
+                && lockedUntil.isAfter(currentTime);
+    }
+
+    public void clearLoginLock() {
+        this.failedLoginAttempts = 0;
+        this.loginLockLevel = 0;
+        this.lockedUntil = null;
     }
 
     public OffsetDateTime getLastLoginAt() {
@@ -250,6 +280,7 @@ public class User {
         this.passwordChangedAt = OffsetDateTime.now();
         this.status = UserStatus.ACTIVE;
         this.failedLoginAttempts = 0;
+        this.loginLockLevel = 0;
         this.lockedUntil = null;
     }
 
@@ -269,6 +300,7 @@ public class User {
         this.passwordHash = passwordHash;
         this.passwordChangedAt = OffsetDateTime.now();
         this.failedLoginAttempts = 0;
+        this.loginLockLevel = 0;
         this.lockedUntil = null;
     }
 }
