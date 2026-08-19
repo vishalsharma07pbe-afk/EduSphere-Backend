@@ -1,7 +1,9 @@
 package com.edusphere.identity.roleapproval.service;
 
+import com.edusphere.identity.auth.security.AuthorizationContext;
 import com.edusphere.identity.common.dto.PageResponse;
 import com.edusphere.identity.common.exception.DuplicateResourceException;
+import com.edusphere.identity.permission.enums.PermissionCode;
 import com.edusphere.identity.roleapproval.dto.RoleApprovalDecisionRequest;
 import com.edusphere.identity.roleapproval.dto.RoleAssignmentApprovalResponse;
 import com.edusphere.identity.roleapproval.entity.RoleAssignmentApproval;
@@ -74,7 +76,7 @@ class RoleAssignmentApprovalServiceImplTest {
 
         assertThrows(
                 ResourceNotFoundException.class,
-                () -> service.recordDecision(1L, 100L, 30L, decision)
+                () -> service.recordDecision(1L, 100L, auth(30L), decision)
         );
     }
 
@@ -91,7 +93,7 @@ class RoleAssignmentApprovalServiceImplTest {
                 () -> service.recordDecision(
                         1L,
                         100L,
-                        30L,
+                        auth(30L),
                         decision(ApprovalDecision.APPROVED)
                 )
         );
@@ -113,7 +115,7 @@ class RoleAssignmentApprovalServiceImplTest {
                 () -> service.recordDecision(
                         1L,
                         100L,
-                        10L,
+                        auth(10L),
                         decision(ApprovalDecision.APPROVED)
                 )
         );
@@ -141,7 +143,7 @@ class RoleAssignmentApprovalServiceImplTest {
                 () -> service.recordDecision(
                         1L,
                         100L,
-                        30L,
+                        auth(30L),
                         decision(ApprovalDecision.APPROVED)
                 )
         );
@@ -181,7 +183,7 @@ class RoleAssignmentApprovalServiceImplTest {
         when(approvalMapper.toResponse(approval)).thenReturn(response);
 
         RoleAssignmentApprovalResponse actual =
-                service.recordDecision(1L, 100L, 30L, decision);
+                service.recordDecision(1L, 100L, auth(30L), decision);
 
         assertSame(response, actual);
         assertFalse(roleRequest.isPending());
@@ -223,7 +225,7 @@ class RoleAssignmentApprovalServiceImplTest {
         when(approvalMapper.toResponse(approval)).thenReturn(response);
 
         RoleAssignmentApprovalResponse actual =
-                service.recordDecision(1L, 100L, 40L, decision);
+                service.recordDecision(1L, 100L, auth(40L), decision);
 
         assertSame(response, actual);
         assertTrue(targetUser.hasRole(UserRole.ADMIN));
@@ -258,7 +260,7 @@ class RoleAssignmentApprovalServiceImplTest {
         when(approvalMapper.toResponse(approval))
                 .thenReturn(new RoleAssignmentApprovalResponse());
 
-        service.recordDecision(1L, 100L, 30L, decision);
+        service.recordDecision(1L, 100L, auth(30L), decision);
 
         assertTrue(roleRequest.isPending());
         verify(userRepository, never()).findByOrganizationIdAndId(1L, 20L);
@@ -354,5 +356,12 @@ class RoleAssignmentApprovalServiceImplTest {
         ReflectionTestUtils.setField(user, "passwordHash", "hash");
         user.setStatus(status);
         return user;
+    }
+
+    private static AuthorizationContext auth(Long userId) {
+        return new AuthorizationContext(
+                userId,
+                Set.of(PermissionCode.ROLE_ASSIGNMENT_APPROVE)
+        );
     }
 }

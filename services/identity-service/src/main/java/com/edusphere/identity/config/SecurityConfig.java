@@ -2,13 +2,19 @@ package com.edusphere.identity.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.convert.converter.Converter;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+
+import java.util.Collection;
+import java.util.LinkedHashSet;
 
 @Configuration
 @EnableMethodSecurity
@@ -17,7 +23,7 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
-            JwtAuthenticationConverter jwtRoleConverter
+            JwtAuthenticationConverter jwtAuthenticationConverter
     ) throws Exception {
 
         http
@@ -81,7 +87,7 @@ public class SecurityConfig {
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(jwt -> jwt
                                 .jwtAuthenticationConverter(
-                                        jwtRoleConverter
+                                        jwtAuthenticationConverter
                                 )
                         )
                 );
@@ -90,7 +96,7 @@ public class SecurityConfig {
     }
 
     @Bean
-    public JwtAuthenticationConverter jwtRoleConverter() {
+    public JwtAuthenticationConverter jwtAuthenticationConverter() {
 
         JwtGrantedAuthoritiesConverter rolesReader =
                 new JwtGrantedAuthoritiesConverter();
@@ -98,13 +104,32 @@ public class SecurityConfig {
         rolesReader.setAuthoritiesClaimName("roles");
         rolesReader.setAuthorityPrefix("ROLE_");
 
-        JwtAuthenticationConverter jwtAuthentication =
+        JwtGrantedAuthoritiesConverter permissionsReader =
+                new JwtGrantedAuthoritiesConverter();
+
+        permissionsReader.setAuthoritiesClaimName("permissions");
+        permissionsReader.setAuthorityPrefix("");
+
+        Converter<Jwt, Collection<GrantedAuthority>>
+                combinedAuthoritiesConverter = jwt -> {
+
+            Collection<GrantedAuthority> authorities =
+                    new LinkedHashSet<>();
+
+            authorities.addAll(rolesReader.convert(jwt));
+            authorities.addAll(permissionsReader.convert(jwt));
+
+            return authorities;
+        };
+
+        JwtAuthenticationConverter jwtAuthenticationConverter =
                 new JwtAuthenticationConverter();
 
-        jwtAuthentication.setJwtGrantedAuthoritiesConverter(
-                rolesReader
-        );
+        jwtAuthenticationConverter
+                .setJwtGrantedAuthoritiesConverter(
+                        combinedAuthoritiesConverter
+                );
 
-        return jwtAuthentication;
+        return jwtAuthenticationConverter;
     }
 }

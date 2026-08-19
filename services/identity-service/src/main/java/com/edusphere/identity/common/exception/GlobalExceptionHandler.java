@@ -6,6 +6,7 @@ import com.edusphere.identity.auth.exception.InvalidCredentialsException;
 import com.edusphere.identity.auth.exception.PasswordChangeNotAllowedException;
 import com.edusphere.identity.roleapproval.exception.ApprovalNotAllowedException;
 import com.edusphere.identity.roleapproval.exception.InvalidApprovalStateException;
+import com.edusphere.identity.roleremoval.exception.ProtectedRoleRemovalException;
 import com.edusphere.identity.user.exception.InvalidUserStatusTransitionException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
@@ -192,6 +193,23 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(InvalidApprovalStateException.class)
     public ResponseEntity<ApiErrorResponse> handleInvalidApprovalStateException(
             InvalidApprovalStateException exception,
+            HttpServletRequest request
+    ) {
+        ApiErrorResponse response = createErrorResponse(
+                HttpStatus.CONFLICT,
+                exception.getMessage(),
+                request.getRequestURI(),
+                null
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(response);
+    }
+
+    @ExceptionHandler(ProtectedRoleRemovalException.class)
+    public ResponseEntity<ApiErrorResponse> handleProtectedRoleRemoval(
+            ProtectedRoleRemovalException exception,
             HttpServletRequest request
     ) {
         ApiErrorResponse response = createErrorResponse(

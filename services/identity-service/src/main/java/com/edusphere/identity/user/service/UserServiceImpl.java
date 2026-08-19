@@ -1,6 +1,7 @@
 package com.edusphere.identity.user.service;
 
 import com.edusphere.identity.auth.activation.event.UserActivationRequestedEvent;
+import com.edusphere.identity.auth.security.AuthorizationContext;
 import com.edusphere.identity.common.dto.PageResponse;
 import com.edusphere.identity.common.exception.DuplicateResourceException;
 import com.edusphere.identity.common.exception.ResourceNotFoundException;
@@ -12,7 +13,10 @@ import com.edusphere.identity.roleapproval.mapper.RoleAssignmentRequestMapper;
 import com.edusphere.identity.roleapproval.policy.RoleApprovalPolicy;
 import com.edusphere.identity.roleapproval.repository.RoleAssignmentRequestRepository;
 import com.edusphere.identity.auth.refreshtoken.service.RefreshTokenService;
+import com.edusphere.identity.permission.enums.PermissionCode;
+import com.edusphere.identity.roleremoval.repository.RoleRemovalRequestRepository;
 import com.edusphere.identity.user.exception.InvalidUserStatusTransitionException;
+import com.edusphere.identity.user.policy.UserStatusAuthorizationPolicy;
 import com.edusphere.identity.user.policy.UserStatusTransitionPolicy;
 import com.edusphere.identity.user.dto.CreateUserRequest;
 import com.edusphere.identity.user.dto.UpdateUserProfileRequest;
@@ -38,29 +42,15 @@ import java.util.Set;
 @Transactional
 public class UserServiceImpl implements UserService {
 
-    private static final Set<UserRole> STATUS_MANAGEMENT_ROLES =
-            Set.of(
-                    UserRole.ADMIN,
-                    UserRole.PRINCIPAL,
-                    UserRole.HR
-            );
-
-    private static final Set<UserRole> ACTIVATION_RESEND_ROLES =
-            Set.of(
-                    UserRole.ADMIN,
-                    UserRole.PRINCIPAL,
-                    UserRole.VICE_PRINCIPAL_HEADMASTER,
-                    UserRole.HR,
-                    UserRole.ADMISSIONS
-            );
-
     private final UserRepository userRepository;
     private final UserMapper userMapper;
     private final RoleApprovalPolicy roleApprovalPolicy;
     private final RoleAssignmentRequestRepository roleRequestRepository;
+    private final RoleRemovalRequestRepository roleRemovalRequestRepository;
     private final RoleAssignmentRequestMapper roleRequestMapper;
     private final ApplicationEventPublisher eventPublisher;
     private final UserStatusTransitionPolicy statusTransitionPolicy;
+    private final UserStatusAuthorizationPolicy statusAuthorizationPolicy;
     private final RefreshTokenService refreshTokenService;
 
     public UserServiceImpl(
@@ -68,18 +58,22 @@ public class UserServiceImpl implements UserService {
             UserMapper userMapper,
             RoleApprovalPolicy roleApprovalPolicy,
             RoleAssignmentRequestRepository roleRequestRepository,
+            RoleRemovalRequestRepository roleRemovalRequestRepository,
             RoleAssignmentRequestMapper roleRequestMapper,
             ApplicationEventPublisher eventPublisher,
             UserStatusTransitionPolicy statusTransitionPolicy,
+            UserStatusAuthorizationPolicy statusAuthorizationPolicy,
             RefreshTokenService refreshTokenService
     ) {
         this.userRepository = userRepository;
         this.userMapper = userMapper;
         this.roleApprovalPolicy = roleApprovalPolicy;
         this.roleRequestRepository = roleRequestRepository;
+        this.roleRemovalRequestRepository = roleRemovalRequestRepository;
         this.roleRequestMapper = roleRequestMapper;
         this.eventPublisher = eventPublisher;
         this.statusTransitionPolicy = statusTransitionPolicy;
+        this.statusAuthorizationPolicy = statusAuthorizationPolicy;
         this.refreshTokenService = refreshTokenService;
     }
 
@@ -87,14 +81,19 @@ public class UserServiceImpl implements UserService {
     @Transactional
     public UserResponse createUser(
             Long organizationId,
-            Long createdByUserId,
+            AuthorizationContext authorizationContext,
             CreateUserRequest request
     ) {
+        requirePermission(
+                authorizationContext,
+                PermissionCode.USER_CREATE
+        );
+
         // Load the authenticated creator from the secured organization.
         User creator = userRepository
                 .findByOrganizationIdAndId(
                         organizationId,
-                        createdByUserId
+                        authorizationContext.getUserId()
                 )
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Creating user not found"
@@ -138,6 +137,13 @@ public class UserServiceImpl implements UserService {
         Set<UserRole> sensitiveRoles =
                 roleApprovalPolicy.getSensitiveRoles(request.getRoles());
 
+        if (!sensitiveRoles.isEmpty()) {
+            requirePermission(
+                    authorizationContext,
+                    PermissionCode.ROLE_ASSIGNMENT_REQUEST_CREATE
+            );
+        }
+
         // Validate permission to request every sensitive role.
         for (UserRole sensitiveRole : sensitiveRoles) {
             if (!roleApprovalPolicy.canRequestApproval(
@@ -179,7 +185,7 @@ public class UserServiceImpl implements UserService {
             RoleAssignmentRequest roleRequest =
                     roleRequestMapper.toEntity(
                             organizationId,
-                            createdByUserId,
+                            authorizationContext.getUserId(),
                             approvalRequest
                     );
 
@@ -274,14 +280,14 @@ public class UserServiceImpl implements UserService {
     @Transactional
     public UserResponse updateUserRoles(
             Long organizationId,
-            Long updatedByUserId,
+            AuthorizationContext authorizationContext,
             Long userId,
             UpdateUserRolesRequest request
     ) {
         User updater = userRepository
                 .findByOrganizationIdAndId(
                         organizationId,
-                        updatedByUserId
+                        authorizationContext.getUserId()
                 )
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Role-updating user not found"
@@ -318,22 +324,65 @@ public class UserServiceImpl implements UserService {
             );
         }
 
-        // Treat submitted roles as additions instead of a full replacement.
-        Set<UserRole> newRoles =
+        Set<UserRole> requestedRoles =
                 new HashSet<>(request.getRoles());
 
-        newRoles.removeAll(targetUser.getRoles());
+        Set<UserRole> rolesToAdd =
+                new HashSet<>(requestedRoles);
 
-        if (newRoles.isEmpty()) {
+        rolesToAdd.removeAll(targetUser.getRoles());
+
+        Set<UserRole> rolesToRemove =
+                new HashSet<>(targetUser.getRoles());
+
+        rolesToRemove.removeAll(requestedRoles);
+
+        Set<UserRole> removedSensitiveRoles =
+                rolesToRemove.isEmpty()
+                        ? Set.of()
+                        : roleApprovalPolicy.getSensitiveRoles(rolesToRemove);
+
+        if (!removedSensitiveRoles.isEmpty()) {
+            throw new InvalidRoleRequestException(
+                    "Sensitive role removal requires a separate approval workflow"
+            );
+        }
+
+        if (rolesToAdd.isEmpty() && rolesToRemove.isEmpty()) {
             return userMapper.toResponse(targetUser);
         }
 
         // Separate routine roles from approval-protected roles.
         Set<UserRole> routineRoles =
-                roleApprovalPolicy.getRoutineRoles(newRoles);
+                rolesToAdd.isEmpty()
+                        ? Set.of()
+                        : roleApprovalPolicy.getRoutineRoles(rolesToAdd);
 
         Set<UserRole> sensitiveRoles =
-                roleApprovalPolicy.getSensitiveRoles(newRoles);
+                rolesToAdd.isEmpty()
+                        ? Set.of()
+                        : roleApprovalPolicy.getSensitiveRoles(rolesToAdd);
+
+        if (!routineRoles.isEmpty()) {
+            requirePermission(
+                    authorizationContext,
+                    PermissionCode.ROLE_ASSIGN_ROUTINE
+            );
+        }
+
+        if (!rolesToRemove.isEmpty()) {
+            requirePermission(
+                    authorizationContext,
+                    PermissionCode.ROLE_REMOVE_ROUTINE
+            );
+        }
+
+        if (!sensitiveRoles.isEmpty()) {
+            requirePermission(
+                    authorizationContext,
+                    PermissionCode.ROLE_ASSIGNMENT_REQUEST_CREATE
+            );
+        }
 
         // Validate permission and prevent duplicate pending requests.
         for (UserRole sensitiveRole : sensitiveRoles) {
@@ -366,6 +415,26 @@ public class UserServiceImpl implements UserService {
             }
         }
 
+        for (UserRole removedRole : rolesToRemove) {
+            boolean pendingRemovalRequestExists =
+                    roleRemovalRequestRepository
+                            .existsByOrganizationIdAndUserIdAndRequestedRoleAndStatus(
+                                    organizationId,
+                                    targetUser.getId(),
+                                    removedRole,
+                                    ApprovalStatus.PENDING
+                            );
+
+            if (pendingRemovalRequestExists) {
+                throw new DuplicateResourceException(
+                        "A pending removal request already exists for user "
+                                + targetUser.getId()
+                                + " and role "
+                                + removedRole
+                );
+            }
+        }
+
         // Assign routine roles immediately.
         for (UserRole routineRole : routineRoles) {
             targetUser.addRole(routineRole);
@@ -383,11 +452,15 @@ public class UserServiceImpl implements UserService {
             RoleAssignmentRequest roleRequest =
                     roleRequestMapper.toEntity(
                             organizationId,
-                            updatedByUserId,
+                            authorizationContext.getUserId(),
                             approvalRequest
                     );
 
             roleRequestRepository.save(roleRequest);
+        }
+
+        for (UserRole removedRole : rolesToRemove) {
+            targetUser.removeRole(removedRole);
         }
 
         User updatedUser = userRepository.save(targetUser);
@@ -398,7 +471,7 @@ public class UserServiceImpl implements UserService {
     @Override
     public UserResponse updateUserStatus(
             Long organizationId,
-            Long updatedByUserId,
+            AuthorizationContext authorizationContext,
             Long userId,
             UpdateUserStatusRequest request
     ) {
@@ -406,7 +479,7 @@ public class UserServiceImpl implements UserService {
         User updater = userRepository
                 .findByOrganizationIdAndId(
                         organizationId,
-                        updatedByUserId
+                        authorizationContext.getUserId()
                 )
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Status-updating user not found"
@@ -415,16 +488,6 @@ public class UserServiceImpl implements UserService {
         if (updater.getStatus() != UserStatus.ACTIVE) {
             throw new ApprovalNotAllowedException(
                     "Only an active user can update account status"
-            );
-        }
-
-        boolean authorized = updater.getRoles()
-                .stream()
-                .anyMatch(STATUS_MANAGEMENT_ROLES::contains);
-
-        if (!authorized) {
-            throw new ApprovalNotAllowedException(
-                    "You are not authorized to update account status"
             );
         }
 
@@ -466,6 +529,16 @@ public class UserServiceImpl implements UserService {
             );
         }
 
+        if (!statusAuthorizationPolicy.canUpdateStatus(
+                currentStatus,
+                requestedStatus,
+                authorizationContext::hasPermission
+        )) {
+            throw new ApprovalNotAllowedException(
+                    "You are not authorized to update account status"
+            );
+        }
+
         if (currentStatus == requestedStatus) {
             // Idempotent requests return the current state without side effects.
             return userMapper.toResponse(targetUser);
@@ -491,12 +564,17 @@ public class UserServiceImpl implements UserService {
     public void resendActivationLink(
             Long organizationId,
             Long userId,
-            Long requestedByUserId
+            AuthorizationContext authorizationContext
     ) {
+        requirePermission(
+                authorizationContext,
+                PermissionCode.USER_ACTIVATION_RESEND
+        );
+
         User requester = userRepository
                 .findByOrganizationIdAndId(
                         organizationId,
-                        requestedByUserId
+                        authorizationContext.getUserId()
                 )
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Requesting user not found"
@@ -505,16 +583,6 @@ public class UserServiceImpl implements UserService {
         if (requester.getStatus() != UserStatus.ACTIVE) {
             throw new ApprovalNotAllowedException(
                     "Only an active user can resend an activation link"
-            );
-        }
-
-        boolean authorized = requester.getRoles()
-                .stream()
-                .anyMatch(ACTIVATION_RESEND_ROLES::contains);
-
-        if (!authorized) {
-            throw new ApprovalNotAllowedException(
-                    "You are not authorized to resend activation links"
             );
         }
 
@@ -546,5 +614,17 @@ public class UserServiceImpl implements UserService {
                         targetUser.getId()
                 )
         );
+    }
+
+    private void requirePermission(
+            AuthorizationContext authorizationContext,
+            PermissionCode permissionCode
+    ) {
+        if (authorizationContext == null
+                || !authorizationContext.hasPermission(permissionCode)) {
+            throw new ApprovalNotAllowedException(
+                    "Missing required permission: " + permissionCode
+            );
+        }
     }
 }

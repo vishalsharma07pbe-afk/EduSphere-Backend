@@ -1,6 +1,7 @@
 package com.edusphere.identity.user.service;
 
 import com.edusphere.identity.common.dto.PageResponse;
+import com.edusphere.identity.auth.security.AuthorizationContext;
 import com.edusphere.identity.user.dto.CreateUserRequest;
 import com.edusphere.identity.user.dto.UpdateUserProfileRequest;
 import com.edusphere.identity.user.dto.UpdateUserRolesRequest;
@@ -14,7 +15,7 @@ public interface UserService {
 
     UserResponse createUser(
             Long organizationId,
-            Long createdByUserId,
+            AuthorizationContext authorizationContext,
             CreateUserRequest request
     );
 
@@ -36,14 +37,14 @@ public interface UserService {
 
     UserResponse updateUserRoles(
             Long organizationId,
-            Long updatedByUserId,
+            AuthorizationContext authorizationContext,
             Long userId,
             UpdateUserRolesRequest request
     );
 
     UserResponse updateUserStatus(
             Long organizationId,
-            Long updatedByUserId,
+            AuthorizationContext authorizationContext,
             Long userId,
             UpdateUserStatusRequest request
     );
@@ -51,6 +52,6 @@ public interface UserService {
     void resendActivationLink(
             Long organizationId,
             Long userId,
-            Long requestedByUserId
+            AuthorizationContext authorizationContext
     );
 }

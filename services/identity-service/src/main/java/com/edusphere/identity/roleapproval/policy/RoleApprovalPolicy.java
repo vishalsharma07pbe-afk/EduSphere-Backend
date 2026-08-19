@@ -28,29 +28,49 @@ public class RoleApprovalPolicy {
             REQUIRED_APPROVERS = new EnumMap<>(UserRole.class);
 
     static {
-        // Critical security role: requires two different authorities.
+        /*
+         * Assigning ADMIN requires:
+         *
+         * 1. An existing ADMIN for operational/security verification.
+         * 2. A GOVERNING_AUTHORITY for independent authorization.
+         *
+         * The two approvals must come from two different users.
+         */
         REQUIRED_APPROVERS.put(
                 UserRole.ADMIN,
                 Set.of(
                         UserRole.ADMIN,
-                        UserRole.PRINCIPAL
+                        UserRole.GOVERNING_AUTHORITY
                 )
         );
 
-        // A new principal must be approved by an existing administrator.
+        /*
+         * Assigning PRINCIPAL requires:
+         *
+         * 1. ADMIN verification of the account and employment link.
+         * 2. GOVERNING_AUTHORITY approval of the appointment.
+         */
         REQUIRED_APPROVERS.put(
                 UserRole.PRINCIPAL,
-                Set.of(UserRole.ADMIN)
+                Set.of(
+                        UserRole.ADMIN,
+                        UserRole.GOVERNING_AUTHORITY
+                )
         );
 
-        // Senior school leadership role approved by the principal.
+        /*
+         * Vice Principal is an academic leadership appointment.
+         * Principal provides the required academic approval.
+         */
         REQUIRED_APPROVERS.put(
-                UserRole.VICE_PRINCIPAL_HEADMASTER,
+                UserRole.VICE_PRINCIPAL,
                 Set.of(UserRole.PRINCIPAL)
         );
 
-        // HR can manage employee accounts, so granting HR itself
-        // requires both administrative and principal approval.
+        /*
+         * HR has access to sensitive employee information and
+         * account-provisioning workflows.
+         */
         REQUIRED_APPROVERS.put(
                 UserRole.HR,
                 Set.of(
@@ -59,20 +79,51 @@ public class RoleApprovalPolicy {
                 )
         );
 
-        // Department-level sensitive roles require principal approval.
+        /*
+         * Admissions Officer manages sensitive applicant,
+         * Student and Guardian information.
+         */
         REQUIRED_APPROVERS.put(
-                UserRole.ADMISSIONS,
+                UserRole.ADMISSIONS_OFFICER,
                 Set.of(UserRole.PRINCIPAL)
         );
 
+        /*
+         * Accountant receives access to financial data and
+         * payment-processing workflows.
+         */
         REQUIRED_APPROVERS.put(
                 UserRole.ACCOUNTANT,
-                Set.of(UserRole.PRINCIPAL)
+                Set.of(
+                        UserRole.ADMIN,
+                        UserRole.PRINCIPAL
+                )
         );
 
+        /*
+         * Examination Controller manages marks workflows,
+         * moderation and result-publication preparation.
+         */
         REQUIRED_APPROVERS.put(
                 UserRole.EXAMINATION_CONTROLLER,
                 Set.of(UserRole.PRINCIPAL)
+        );
+
+        /*
+         * Additional Governing Authorities require approval from:
+         *
+         * 1. An existing GOVERNING_AUTHORITY.
+         * 2. An ADMIN for account/security verification.
+         *
+         * The first Governing Authority must be created through
+         * the organization bootstrap/onboarding process.
+         */
+        REQUIRED_APPROVERS.put(
+                UserRole.GOVERNING_AUTHORITY,
+                Set.of(
+                        UserRole.GOVERNING_AUTHORITY,
+                        UserRole.ADMIN
+                )
         );
     }
 
@@ -153,12 +204,45 @@ public class RoleApprovalPolicy {
             return false;
         }
 
-        if (!requiresApproval(requestedRole)) {
+        if (requestedRole == null || !requiresApproval(requestedRole)) {
             return false;
         }
 
-        return requesterRoles.contains(UserRole.HR)
-                || requesterRoles.contains(UserRole.ADMIN);
+        /*
+         * HR may request approved staff appointments.
+         */
+        if (requesterRoles.contains(UserRole.HR)) {
+            return true;
+        }
+
+        /*
+         * Admin may initiate account and role provisioning.
+         */
+        if (requesterRoles.contains(UserRole.ADMIN)) {
+            return true;
+        }
+
+        /*
+         * Principal may request academic leadership and
+         * academic-operation appointments.
+         */
+        if (requesterRoles.contains(UserRole.PRINCIPAL)) {
+            return requestedRole == UserRole.VICE_PRINCIPAL
+                    || requestedRole == UserRole.ADMISSIONS_OFFICER
+                    || requestedRole == UserRole.EXAMINATION_CONTROLLER;
+        }
+
+        /*
+         * Governing Authority may initiate senior leadership
+         * appointments.
+         */
+        if (requesterRoles.contains(UserRole.GOVERNING_AUTHORITY)) {
+            return requestedRole == UserRole.ADMIN
+                    || requestedRole == UserRole.PRINCIPAL
+                    || requestedRole == UserRole.GOVERNING_AUTHORITY;
+        }
+
+        return false;
     }
 
     /*

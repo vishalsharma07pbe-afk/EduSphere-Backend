@@ -1,5 +1,6 @@
 package com.edusphere.identity.roleapproval.controller;
 
+import com.edusphere.identity.auth.security.AuthorizationContext;
 import com.edusphere.identity.roleapproval.dto.CreateRoleAssignmentRequest;
 import com.edusphere.identity.roleapproval.dto.RoleAssignmentRequestResponse;
 import com.edusphere.identity.roleapproval.service.RoleAssignmentRequestService;
@@ -40,19 +41,19 @@ public class RoleAssignmentRequestController {
     }
 
     @PostMapping
+    @PreAuthorize("""
+        @tenantSecurity.canAccessOrganization(authentication, #organizationId)
+        and hasAuthority('ROLE_ASSIGNMENT_REQUEST_CREATE')
+        """)
     public ResponseEntity<RoleAssignmentRequestResponse> createRequest(
             @PathVariable Long organizationId,
             @AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody CreateRoleAssignmentRequest request
     ) {
-        Long requesterUserId = Long.valueOf(
-                jwt.getSubject()
-        );
-
         RoleAssignmentRequestResponse response =
                 requestService.createRequest(
                         organizationId,
-                        requesterUserId,
+                        AuthorizationContext.fromJwt(jwt),
                         request
                 );
 
@@ -62,6 +63,10 @@ public class RoleAssignmentRequestController {
     }
 
     @GetMapping("/{requestId}")
+    @PreAuthorize("""
+        @tenantSecurity.canAccessOrganization(authentication, #organizationId)
+        and hasAuthority('ROLE_ASSIGNMENT_REQUEST_VIEW')
+        """)
     public ResponseEntity<RoleAssignmentRequestDetailsResponse> getRequestDetails(
             @PathVariable Long organizationId,
             @PathVariable Long requestId,
@@ -82,6 +87,10 @@ public class RoleAssignmentRequestController {
     }
 
     @GetMapping("/decision-history")
+    @PreAuthorize("""
+        @tenantSecurity.canAccessOrganization(authentication, #organizationId)
+        and hasAuthority('ROLE_ASSIGNMENT_REQUEST_VIEW')
+        """)
     public ResponseEntity<PageResponse<RoleAssignmentApprovalResponse>>
     getDecisionHistory(
             @PathVariable Long organizationId,
@@ -108,21 +117,21 @@ public class RoleAssignmentRequestController {
     }
 
     @PostMapping("/{requestId}/decisions")
+    @PreAuthorize("""
+        @tenantSecurity.canAccessOrganization(authentication, #organizationId)
+        and hasAuthority('ROLE_ASSIGNMENT_APPROVE')
+        """)
     public ResponseEntity<RoleAssignmentApprovalResponse> recordDecision(
             @PathVariable Long organizationId,
             @PathVariable Long requestId,
             @AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody RoleApprovalDecisionRequest decisionRequest
     ) {
-        Long approverUserId = Long.valueOf(
-                jwt.getSubject()
-        );
-
         RoleAssignmentApprovalResponse response =
                 approvalService.recordDecision(
                         organizationId,
                         requestId,
-                        approverUserId,
+                        AuthorizationContext.fromJwt(jwt),
                         decisionRequest
                 );
 
@@ -132,6 +141,10 @@ public class RoleAssignmentRequestController {
     }
 
     @GetMapping("/actionable")
+    @PreAuthorize("""
+        @tenantSecurity.canAccessOrganization(authentication, #organizationId)
+        and hasAuthority('ROLE_ASSIGNMENT_REQUEST_VIEW')
+        """)
     public ResponseEntity<PageResponse<RoleAssignmentRequestResponse>>
     getActionableRequests(
             @PathVariable Long organizationId,
@@ -158,20 +171,20 @@ public class RoleAssignmentRequestController {
     }
 
     @PostMapping("/{requestId}/cancel")
+    @PreAuthorize("""
+        @tenantSecurity.canAccessOrganization(authentication, #organizationId)
+        and hasAuthority('ROLE_ASSIGNMENT_REQUEST_CANCEL')
+        """)
     public ResponseEntity<RoleAssignmentRequestResponse> cancelRequest(
             @PathVariable Long organizationId,
             @PathVariable Long requestId,
             @AuthenticationPrincipal Jwt jwt
     ) {
-        Long requesterUserId = Long.valueOf(
-                jwt.getSubject()
-        );
-
         RoleAssignmentRequestResponse response =
                 requestService.cancelRequest(
                         organizationId,
                         requestId,
-                        requesterUserId
+                        AuthorizationContext.fromJwt(jwt)
                 );
 
         return ResponseEntity.ok(response);

@@ -1,5 +1,6 @@
 package com.edusphere.identity.user.controller;
 
+import com.edusphere.identity.auth.security.AuthorizationContext;
 import com.edusphere.identity.common.dto.PageResponse;
 import com.edusphere.identity.user.dto.CreateUserRequest;
 import com.edusphere.identity.user.dto.UpdateUserProfileRequest;
@@ -31,8 +32,11 @@ public class UserController {
     @PostMapping
     @PreAuthorize("""
         @tenantSecurity.canAccessOrganization(authentication, #organizationId)
-        and hasAnyRole('ADMIN', 'HR')
-        and @userAuthorization.canCreateUser(authentication, #request.roles)
+        and hasAuthority('USER_CREATE')
+        and @userAuthorization.canCreateUser(
+            authentication,
+            #request.roles
+        )
         """)
     public ResponseEntity<UserResponse> createUser(
             @PathVariable Long organizationId,
@@ -46,11 +50,9 @@ public class UserController {
         }
 
         // The JWT subject contains the authenticated creator's database user ID.
-        Long createdByUserId = Long.valueOf(jwt.getSubject());
-
         UserResponse response = userService.createUser(
                 organizationId,
-                createdByUserId,
+                AuthorizationContext.fromJwt(jwt),
                 request
         );
 
@@ -59,10 +61,16 @@ public class UserController {
                 .body(response);
     }
 
-    @PreAuthorize(
-            "@tenantSecurity.isCurrentUser(authentication, #userId)"
-                    + " or hasAnyRole('ADMIN', 'PRINCIPAL', 'HR')"
-    )
+    @PreAuthorize("""
+        @tenantSecurity.canAccessOrganization(authentication, #organizationId)
+        and (
+            (
+                @tenantSecurity.isCurrentUser(authentication, #userId)
+                and hasAuthority('PROFILE_VIEW_SELF')
+            )
+            or hasAuthority('USER_VIEW')
+        )
+        """)
     @GetMapping("/{userId}")
     public ResponseEntity<UserResponse> getUserById(
             @PathVariable Long organizationId,
@@ -72,6 +80,10 @@ public class UserController {
         return ResponseEntity.ok(response);
     }
 
+    @PreAuthorize("""
+        @tenantSecurity.canAccessOrganization(authentication, #organizationId)
+        and hasAuthority('USER_VIEW')
+        """)
     @GetMapping
     public ResponseEntity<PageResponse<UserResponse>> getAllUsers(
             @PathVariable Long organizationId,
@@ -91,6 +103,16 @@ public class UserController {
         return ResponseEntity.ok(response);
     }
 
+    @PreAuthorize("""
+        @tenantSecurity.canAccessOrganization(authentication, #organizationId)
+        and (
+            (
+                @tenantSecurity.isCurrentUser(authentication, #userId)
+                and hasAuthority('PROFILE_UPDATE_SELF')
+            )
+            or hasAuthority('USER_PROFILE_UPDATE')
+        )
+        """)
     @PutMapping("/{userId}/profile")
     public ResponseEntity<UserResponse> updateUserProfile(
             @PathVariable Long organizationId,
@@ -111,7 +133,11 @@ public class UserController {
     @PutMapping("/{userId}/roles")
     @PreAuthorize("""
         @tenantSecurity.canAccessOrganization(authentication, #organizationId)
-        and hasAnyRole('ADMIN', 'HR')
+        and hasAnyAuthority(
+            'ROLE_ASSIGN_ROUTINE',
+            'ROLE_REMOVE_ROUTINE',
+            'ROLE_ASSIGNMENT_REQUEST_CREATE'
+        )
         """)
     public ResponseEntity<UserResponse> updateUserRoles(
             @PathVariable Long organizationId,
@@ -120,11 +146,9 @@ public class UserController {
             @Valid @RequestBody UpdateUserRolesRequest request
     ) {
         // Identify the authenticated person performing the role update.
-        Long updatedByUserId = Long.valueOf(jwt.getSubject());
-
         UserResponse response = userService.updateUserRoles(
                 organizationId,
-                updatedByUserId,
+                AuthorizationContext.fromJwt(jwt),
                 userId,
                 request
         );
@@ -134,8 +158,16 @@ public class UserController {
 
     @PutMapping("/{userId}/status")
     @PreAuthorize("""
-        @tenantSecurity.canAccessOrganization(authentication, #organizationId)
-        and hasAnyRole('ADMIN', 'PRINCIPAL', 'HR')
+        @tenantSecurity.canAccessOrganization(
+            authentication,
+            #organizationId
+        )
+        and @userAuthorization.canUpdateStatus(
+            authentication,
+            #organizationId,
+            #userId,
+            #request.status
+        )
         """)
     public ResponseEntity<UserResponse> updateUserStatus(
             @PathVariable Long organizationId,
@@ -144,13 +176,10 @@ public class UserController {
             @Valid @RequestBody
             UpdateUserStatusRequest request
     ) {
-        Long updatedByUserId =
-                Long.valueOf(jwt.getSubject());
-
         UserResponse response =
                 userService.updateUserStatus(
                         organizationId,
-                        updatedByUserId,
+                        AuthorizationContext.fromJwt(jwt),
                         userId,
                         request
                 );
@@ -161,26 +190,17 @@ public class UserController {
     @PostMapping("/{userId}/activation/resend")
     @PreAuthorize("""
         @tenantSecurity.canAccessOrganization(authentication, #organizationId)
-        and hasAnyRole(
-            'ADMIN',
-            'PRINCIPAL',
-            'VICE_PRINCIPAL_HEADMASTER',
-            'HR',
-            'ADMISSIONS'
-        )
+        and hasAuthority('USER_ACTIVATION_RESEND')
         """)
     public ResponseEntity<Void> resendActivationLink(
             @PathVariable Long organizationId,
             @PathVariable Long userId,
             @AuthenticationPrincipal Jwt jwt
     ) {
-        Long requestedByUserId =
-                Long.valueOf(jwt.getSubject());
-
         userService.resendActivationLink(
                 organizationId,
                 userId,
-                requestedByUserId
+                AuthorizationContext.fromJwt(jwt)
         );
 
         return ResponseEntity.accepted().build();

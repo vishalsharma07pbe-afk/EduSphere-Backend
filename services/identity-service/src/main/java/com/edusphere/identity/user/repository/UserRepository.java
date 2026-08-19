@@ -4,8 +4,12 @@ import com.edusphere.identity.user.entity.User;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
+import com.edusphere.identity.user.enums.UserRole;
+import com.edusphere.identity.user.enums.UserStatus;
 
 public interface UserRepository extends JpaRepository<User, Long> {
 
@@ -37,5 +41,19 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Page<User> findAllByOrganizationId(
             Long organizationId,
             Pageable pageable
+    );
+
+    @Query("""
+            select count(user)
+            from User user
+            join user.roles role
+            where user.organizationId = :organizationId
+                and user.status = :status
+                and role = :role
+            """)
+    long countByOrganizationIdAndStatusAndRole(
+            @Param("organizationId") Long organizationId,
+            @Param("status") UserStatus status,
+            @Param("role") UserRole role
     );
 }

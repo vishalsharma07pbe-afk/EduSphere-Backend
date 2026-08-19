@@ -1,24 +1,43 @@
 package com.edusphere.identity.user.enums;
 
 public enum UserRole {
+
+    // Leadership
     ADMIN,
+    PRINCIPAL,
+    VICE_PRINCIPAL,
+
+    // Academic users
     TEACHER,
     STUDENT,
     PARENT,
-    ACCOUNTANT,
-    PRINCIPAL,
-    VICE_PRINCIPAL_HEADMASTER,
-    LIBRARIAN,
-    HR,
-    ADMISSIONS,
+
+    // Academic operations
+    ADMISSIONS_OFFICER,
     EXAMINATION_CONTROLLER,
+    LIBRARIAN,
+
+    // Administration
+    HR,
+    ACCOUNTANT,
+
+    // Student operations
     TRANSPORT_MANAGER,
+    HOSTEL_STAFF,
+
+    // Resource operations
     INVENTORY_MANAGER,
-    SPORTS_DEPARTMENT,
-    SCIENCE_LAB,
-    COMPUTER_LAB,
-    MUSIC_DEPARTMENT,
-    MAINTENANCE,
-    HOUSEKEEPING,
-    HOSTEL
+
+    // Specialized departments
+    SPORTS_STAFF,
+    SCIENCE_LAB_STAFF,
+    COMPUTER_LAB_STAFF,
+    MUSIC_STAFF,
+
+    // Facilities
+    MAINTENANCE_STAFF,
+    HOUSEKEEPING_STAFF,
+
+    // Restricted governance
+    GOVERNING_AUTHORITY
 }

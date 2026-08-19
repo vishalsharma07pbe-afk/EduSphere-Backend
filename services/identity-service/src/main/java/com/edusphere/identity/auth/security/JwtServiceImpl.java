@@ -1,18 +1,22 @@
 package com.edusphere.identity.auth.security;
 
+import com.edusphere.identity.permission.enums.PermissionCode;
 import com.edusphere.identity.user.entity.User;
 import com.edusphere.identity.user.enums.UserRole;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.stereotype.Service;
+
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 
 @Service
 public class JwtServiceImpl implements JwtService {
 
-    private static final String ISSUER = "edusphere-identity-service";
+    private static final String ISSUER =
+            "edusphere-identity-service";
 
     private final JwtEncoder jwtEncoder;
     private final JwtProperties jwtProperties;
@@ -26,7 +30,10 @@ public class JwtServiceImpl implements JwtService {
     }
 
     @Override
-    public String generateAccessToken(User user) {
+    public String generateAccessToken(
+            User user,
+            Set<PermissionCode> permissions
+    ) {
         Instant issuedAt = Instant.now();
 
         Instant expiresAt = issuedAt.plusSeconds(
@@ -36,6 +43,12 @@ public class JwtServiceImpl implements JwtService {
         List<String> roles = user.getRoles()
                 .stream()
                 .map(UserRole::name)
+                .sorted()
+                .toList();
+
+        List<String> permissionCodes = permissions
+                .stream()
+                .map(PermissionCode::name)
                 .sorted()
                 .toList();
 
@@ -50,6 +63,7 @@ public class JwtServiceImpl implements JwtService {
                 )
                 .claim("username", user.getUsername())
                 .claim("roles", roles)
+                .claim("permissions", permissionCodes)
                 .build();
 
         return jwtEncoder

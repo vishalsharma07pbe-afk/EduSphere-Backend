@@ -21,6 +21,8 @@ import com.edusphere.identity.user.repository.UserRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.edusphere.identity.permission.enums.PermissionCode;
+import com.edusphere.identity.permission.service.PermissionService;
 
 import java.time.OffsetDateTime;
 import java.util.Set;
@@ -37,6 +39,7 @@ public class AuthServiceImpl implements AuthService {
     private final RefreshTokenService refreshTokenService;
     private final LoginLockoutService loginLockoutService;
     private final PasswordChangeProperties passwordChangeProperties;
+    private final PermissionService permissionService;
 
     public AuthServiceImpl(
             UserRepository userRepository,
@@ -44,7 +47,8 @@ public class AuthServiceImpl implements AuthService {
             JwtService jwtService,
             RefreshTokenService refreshTokenService,
             LoginLockoutService loginLockoutService,
-            PasswordChangeProperties passwordChangeProperties
+            PasswordChangeProperties passwordChangeProperties,
+            PermissionService permissionService
     ) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
@@ -52,6 +56,7 @@ public class AuthServiceImpl implements AuthService {
         this.refreshTokenService = refreshTokenService;
         this.loginLockoutService = loginLockoutService;
         this.passwordChangeProperties = passwordChangeProperties;
+        this.permissionService = permissionService;
     }
 
     @Override
@@ -222,8 +227,16 @@ public class AuthServiceImpl implements AuthService {
             User user,
             String rawRefreshToken
     ) {
+        Set<PermissionCode> permissions =
+                permissionService.getActivePermissionsForRoles(
+                        user.getRoles()
+                );
+
         String accessToken =
-                jwtService.generateAccessToken(user);
+                jwtService.generateAccessToken(
+                        user,
+                        permissions
+                );
 
         Set<String> roles = user.getRoles()
                 .stream()

@@ -19,7 +19,7 @@ class RoleApprovalPolicyTest {
     }
 
     @Test
-    void canRequestApproval_allowsHrOrAdminOnlyForSensitiveRoles() {
+    void canRequestApproval_allowsEligibleRequesterRolesForSensitiveRoles() {
         assertTrue(policy.canRequestApproval(
                 Set.of(UserRole.HR),
                 UserRole.ADMIN
@@ -27,6 +27,10 @@ class RoleApprovalPolicyTest {
         assertTrue(policy.canRequestApproval(
                 Set.of(UserRole.ADMIN),
                 UserRole.PRINCIPAL
+        ));
+        assertTrue(policy.canRequestApproval(
+                Set.of(UserRole.GOVERNING_AUTHORITY),
+                UserRole.ADMIN
         ));
         assertFalse(policy.canRequestApproval(
                 Set.of(UserRole.TEACHER),
@@ -44,16 +48,16 @@ class RoleApprovalPolicyTest {
                 UserRole.ADMIN,
                 policy.findAvailableApproverRole(
                         UserRole.ADMIN,
-                        Set.of(UserRole.ADMIN, UserRole.PRINCIPAL),
+                        Set.of(UserRole.ADMIN, UserRole.GOVERNING_AUTHORITY),
                         Set.of()
                 ).orElseThrow()
         );
 
         assertEquals(
-                UserRole.PRINCIPAL,
+                UserRole.GOVERNING_AUTHORITY,
                 policy.findAvailableApproverRole(
                         UserRole.ADMIN,
-                        Set.of(UserRole.ADMIN, UserRole.PRINCIPAL),
+                        Set.of(UserRole.ADMIN, UserRole.GOVERNING_AUTHORITY),
                         Set.of(UserRole.ADMIN)
                 ).orElseThrow()
         );

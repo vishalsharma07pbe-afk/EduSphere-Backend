@@ -1,6 +1,7 @@
 package com.edusphere.identity.roleapproval.service;
 
 import com.edusphere.identity.common.dto.PageResponse;
+import com.edusphere.identity.auth.security.AuthorizationContext;
 import com.edusphere.identity.roleapproval.dto.CreateRoleAssignmentRequest;
 import com.edusphere.identity.roleapproval.dto.RoleAssignmentRequestResponse;
 import com.edusphere.identity.roleapproval.dto.RoleAssignmentRequestDetailsResponse;
@@ -10,7 +11,7 @@ public interface RoleAssignmentRequestService {
 
     RoleAssignmentRequestResponse createRequest(
             Long organizationId,
-            Long requesterUserId,
+            AuthorizationContext authorizationContext,
             CreateRoleAssignmentRequest request
     );
 
@@ -30,6 +31,6 @@ public interface RoleAssignmentRequestService {
     RoleAssignmentRequestResponse cancelRequest(
             Long organizationId,
             Long requestId,
-            Long requesterUserId
+            AuthorizationContext authorizationContext
     );
 }

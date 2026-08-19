@@ -1,7 +1,9 @@
 package com.edusphere.identity.roleapproval.service;
 
+import com.edusphere.identity.auth.security.AuthorizationContext;
 import com.edusphere.identity.common.dto.PageResponse;
 import com.edusphere.identity.common.exception.DuplicateResourceException;
+import com.edusphere.identity.permission.enums.PermissionCode;
 import com.edusphere.identity.roleapproval.dto.CreateRoleAssignmentRequest;
 import com.edusphere.identity.roleapproval.dto.RoleAssignmentRequestResponse;
 import com.edusphere.identity.roleapproval.entity.RoleAssignmentRequest;
@@ -73,7 +75,7 @@ class RoleAssignmentRequestServiceImplTest {
 
         assertThrows(
                 ResourceNotFoundException.class,
-                () -> service.createRequest(1L, 10L, request)
+                () -> service.createRequest(1L, auth(10L), request)
         );
         verify(requestRepository, never()).save(any());
     }
@@ -88,7 +90,7 @@ class RoleAssignmentRequestServiceImplTest {
 
         InvalidRoleRequestException exception = assertThrows(
                 InvalidRoleRequestException.class,
-                () -> service.createRequest(1L, 10L, request)
+                () -> service.createRequest(1L, auth(10L), request)
         );
 
         assertEquals(
@@ -111,7 +113,7 @@ class RoleAssignmentRequestServiceImplTest {
 
         InvalidRoleRequestException exception = assertThrows(
                 InvalidRoleRequestException.class,
-                () -> service.createRequest(1L, 10L, request)
+                () -> service.createRequest(1L, auth(10L), request)
         );
 
         assertEquals(
@@ -138,7 +140,7 @@ class RoleAssignmentRequestServiceImplTest {
 
         InvalidRoleRequestException exception = assertThrows(
                 InvalidRoleRequestException.class,
-                () -> service.createRequest(1L, 10L, request)
+                () -> service.createRequest(1L, auth(10L), request)
         );
 
         assertEquals(
@@ -171,7 +173,7 @@ class RoleAssignmentRequestServiceImplTest {
 
         DuplicateResourceException exception = assertThrows(
                 DuplicateResourceException.class,
-                () -> service.createRequest(1L, 10L, request)
+                () -> service.createRequest(1L, auth(10L), request)
         );
 
         assertEquals(
@@ -203,7 +205,7 @@ class RoleAssignmentRequestServiceImplTest {
         when(requestMapper.toResponse(entity)).thenReturn(response);
 
         RoleAssignmentRequestResponse actual =
-                service.createRequest(1L, 10L, request);
+                service.createRequest(1L, auth(10L), request);
 
         assertSame(response, actual);
         verify(requestRepository).save(entity);
@@ -295,5 +297,15 @@ class RoleAssignmentRequestServiceImplTest {
         ReflectionTestUtils.setField(user, "passwordHash", "hash");
         user.setStatus(status);
         return user;
+    }
+
+    private static AuthorizationContext auth(Long userId) {
+        return new AuthorizationContext(
+                userId,
+                Set.of(
+                        PermissionCode.ROLE_ASSIGNMENT_REQUEST_CREATE,
+                        PermissionCode.ROLE_ASSIGNMENT_REQUEST_CANCEL
+                )
+        );
     }
 }

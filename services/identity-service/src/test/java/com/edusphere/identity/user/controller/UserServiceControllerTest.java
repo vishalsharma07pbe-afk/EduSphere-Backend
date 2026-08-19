@@ -69,7 +69,7 @@ public class UserServiceControllerTest {
     void createUser_whenValid_returnsCreatedUser() throws Exception {
         UserResponse response = response(10L, 1L, "teacher01");
 
-        when(userService.createUser(eq(1L), eq(99L), any()))
+        when(userService.createUser(eq(1L), any(com.edusphere.identity.auth.security.AuthorizationContext.class), any()))
                 .thenReturn(response);
 
         mockMvc.perform(post(BASE_URL, 1L)
@@ -96,7 +96,7 @@ public class UserServiceControllerTest {
                 .andExpect(jsonPath("$.roles[0]").value("TEACHER"))
                 .andExpect(jsonPath("$.status").value("ACTIVE"));
 
-        verify(userService).createUser(eq(1L), eq(99L), any());
+        verify(userService).createUser(eq(1L), any(com.edusphere.identity.auth.security.AuthorizationContext.class), any());
     }
 
     @Test
@@ -156,7 +156,7 @@ public class UserServiceControllerTest {
 
     @Test
     void createUser_whenDuplicateResource_returnsConflict() throws Exception {
-        when(userService.createUser(eq(1L), eq(99L), any()))
+        when(userService.createUser(eq(1L), any(com.edusphere.identity.auth.security.AuthorizationContext.class), any()))
                 .thenThrow(new DuplicateResourceException(
                         "Username already exists in this organization: "
                                 + "teacher01"));
@@ -307,7 +307,7 @@ public class UserServiceControllerTest {
         UserResponse response = response(10L, 1L, "teacher01");
         response.setRoles(Set.of(UserRole.ADMIN, UserRole.TEACHER));
 
-        when(userService.updateUserRoles(eq(1L), eq(99L), eq(10L), any()))
+        when(userService.updateUserRoles(eq(1L), any(com.edusphere.identity.auth.security.AuthorizationContext.class), eq(10L), any()))
                 .thenReturn(response);
 
         mockMvc.perform(put(BASE_URL + "/{userId}/roles", 1L, 10L)
@@ -322,7 +322,7 @@ public class UserServiceControllerTest {
                 .andExpect(jsonPath("$.roles[*]",
                         containsInAnyOrder("ADMIN", "TEACHER")));
 
-        verify(userService).updateUserRoles(eq(1L), eq(99L), eq(10L), any());
+        verify(userService).updateUserRoles(eq(1L), any(com.edusphere.identity.auth.security.AuthorizationContext.class), eq(10L), any());
     }
 
     @Test
@@ -352,7 +352,7 @@ public class UserServiceControllerTest {
         UserResponse response = response(10L, 1L, "teacher01");
         response.setStatus(UserStatus.SUSPENDED);
 
-        when(userService.updateUserStatus(eq(1L), eq(99L), eq(10L), any()))
+        when(userService.updateUserStatus(eq(1L), any(com.edusphere.identity.auth.security.AuthorizationContext.class), eq(10L), any()))
                 .thenReturn(response);
 
         mockMvc.perform(put(BASE_URL + "/{userId}/status", 1L, 10L)
@@ -368,7 +368,7 @@ public class UserServiceControllerTest {
 
         verify(userService).updateUserStatus(
                 eq(1L),
-                eq(99L),
+                any(com.edusphere.identity.auth.security.AuthorizationContext.class),
                 eq(10L),
                 any()
         );

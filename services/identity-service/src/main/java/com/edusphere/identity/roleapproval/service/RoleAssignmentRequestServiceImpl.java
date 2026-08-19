@@ -1,7 +1,9 @@
 package com.edusphere.identity.roleapproval.service;
 
+import com.edusphere.identity.auth.security.AuthorizationContext;
 import com.edusphere.identity.common.dto.PageResponse;
 import com.edusphere.identity.common.exception.DuplicateResourceException;
+import com.edusphere.identity.permission.enums.PermissionCode;
 import com.edusphere.identity.roleapproval.dto.CreateRoleAssignmentRequest;
 import com.edusphere.identity.roleapproval.dto.RoleAssignmentRequestResponse;
 import com.edusphere.identity.roleapproval.entity.RoleAssignmentRequest;
@@ -58,13 +60,18 @@ public class RoleAssignmentRequestServiceImpl implements RoleAssignmentRequestSe
     @Transactional
     public RoleAssignmentRequestResponse createRequest(
             Long organizationId,
-            Long requesterUserId,
+            AuthorizationContext authorizationContext,
             CreateRoleAssignmentRequest request
     ) {
+        requirePermission(
+                authorizationContext,
+                PermissionCode.ROLE_ASSIGNMENT_REQUEST_CREATE
+        );
+
         User requester = userRepository
                 .findByOrganizationIdAndId(
                         organizationId,
-                        requesterUserId
+                        authorizationContext.getUserId()
                 )
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Requesting user not found"
@@ -252,8 +259,13 @@ public class RoleAssignmentRequestServiceImpl implements RoleAssignmentRequestSe
     public RoleAssignmentRequestResponse cancelRequest(
             Long organizationId,
             Long requestId,
-            Long requesterUserId
+            AuthorizationContext authorizationContext
     ) {
+        requirePermission(
+                authorizationContext,
+                PermissionCode.ROLE_ASSIGNMENT_REQUEST_CANCEL
+        );
+
         RoleAssignmentRequest roleRequest = requestRepository
                 .findByIdAndOrganizationId(
                         requestId,
@@ -263,7 +275,9 @@ public class RoleAssignmentRequestServiceImpl implements RoleAssignmentRequestSe
                         "Role assignment request not found"
                 ));
 
-        if (!roleRequest.getRequestedByUserId().equals(requesterUserId)) {
+        if (!roleRequest.getRequestedByUserId().equals(
+                authorizationContext.getUserId()
+        )) {
             throw new ApprovalNotAllowedException(
                     "Only the original requester can cancel this role request"
             );
@@ -277,5 +291,17 @@ public class RoleAssignmentRequestServiceImpl implements RoleAssignmentRequestSe
 
         roleRequest.cancel();
         return requestMapper.toResponse(roleRequest);
+    }
+
+    private void requirePermission(
+            AuthorizationContext authorizationContext,
+            PermissionCode permissionCode
+    ) {
+        if (authorizationContext == null
+                || !authorizationContext.hasPermission(permissionCode)) {
+            throw new ApprovalNotAllowedException(
+                    "Missing required permission: " + permissionCode
+            );
+        }
     }
 }

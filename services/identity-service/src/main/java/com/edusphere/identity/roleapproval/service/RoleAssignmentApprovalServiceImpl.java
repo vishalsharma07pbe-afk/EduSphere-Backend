@@ -1,5 +1,7 @@
 package com.edusphere.identity.roleapproval.service;
 
+import com.edusphere.identity.auth.security.AuthorizationContext;
+import com.edusphere.identity.permission.enums.PermissionCode;
 import com.edusphere.identity.common.dto.PageResponse;
 import com.edusphere.identity.common.exception.DuplicateResourceException;
 import com.edusphere.identity.roleapproval.dto.RoleApprovalDecisionRequest;
@@ -62,9 +64,14 @@ public class RoleAssignmentApprovalServiceImpl
     public RoleAssignmentApprovalResponse recordDecision(
             Long organizationId,
             Long requestId,
-            Long approverUserId,
+            AuthorizationContext authorizationContext,
             RoleApprovalDecisionRequest decisionRequest
     ) {
+        requirePermission(
+                authorizationContext,
+                PermissionCode.ROLE_ASSIGNMENT_APPROVE
+        );
+
         RoleAssignmentRequest roleRequest = requestRepository
                 .findByIdAndOrganizationId(
                         requestId,
@@ -83,7 +90,7 @@ public class RoleAssignmentApprovalServiceImpl
         User approver = userRepository
                 .findByOrganizationIdAndId(
                         organizationId,
-                        approverUserId
+                        authorizationContext.getUserId()
                 )
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Approver user not found"
@@ -310,6 +317,18 @@ public class RoleAssignmentApprovalServiceImpl
         } else {
             // Keep accounts without any approved or routine role unusable.
             targetUser.setStatus(UserStatus.INACTIVE);
+        }
+    }
+
+    private void requirePermission(
+            AuthorizationContext authorizationContext,
+            PermissionCode permissionCode
+    ) {
+        if (authorizationContext == null
+                || !authorizationContext.hasPermission(permissionCode)) {
+            throw new ApprovalNotAllowedException(
+                    "Missing required permission: " + permissionCode
+            );
         }
     }
 }

@@ -16,6 +16,8 @@ import com.edusphere.identity.auth.refreshtoken.model.RefreshTokenRotationResult
 import com.edusphere.identity.auth.refreshtoken.service.RefreshTokenService;
 import com.edusphere.identity.auth.security.JwtService;
 import com.edusphere.identity.common.exception.ResourceNotFoundException;
+import com.edusphere.identity.permission.enums.PermissionCode;
+import com.edusphere.identity.permission.service.PermissionService;
 import com.edusphere.identity.user.entity.User;
 import com.edusphere.identity.user.enums.UserRole;
 import com.edusphere.identity.user.enums.UserStatus;
@@ -39,6 +41,9 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class AuthServiceImplTest {
 
+    private static final Set<PermissionCode> ACTIVE_PERMISSIONS =
+            Set.of(PermissionCode.PROFILE_VIEW_SELF);
+
     @Mock
     private UserRepository userRepository;
     @Mock
@@ -47,6 +52,8 @@ class AuthServiceImplTest {
     private JwtService jwtService;
     @Mock
     private RefreshTokenService refreshTokenService;
+    @Mock
+    private PermissionService permissionService;
 
     private AuthServiceImpl authService;
     private PasswordChangeProperties passwordChangeProperties;
@@ -75,7 +82,8 @@ class AuthServiceImplTest {
                 jwtService,
                 refreshTokenService,
                 new LoginLockoutService(lockoutProperties),
-                passwordChangeProperties
+                passwordChangeProperties,
+                permissionService
         );
     }
 
@@ -93,7 +101,10 @@ class AuthServiceImplTest {
 
         assertEquals("Invalid username or password", exception.getMessage());
         verify(passwordEncoder, never()).matches(anyString(), anyString());
-        verify(jwtService, never()).generateAccessToken(any(User.class));
+        verify(jwtService, never()).generateAccessToken(
+                any(User.class),
+                anySet()
+        );
         verifyNoInteractions(refreshTokenService);
     }
 
@@ -114,7 +125,10 @@ class AuthServiceImplTest {
 
         assertEquals("Invalid username or password", exception.getMessage());
         assertEquals(1, user.getFailedLoginAttempts());
-        verify(jwtService, never()).generateAccessToken(any(User.class));
+        verify(jwtService, never()).generateAccessToken(
+                any(User.class),
+                anySet()
+        );
         verifyNoInteractions(refreshTokenService);
     }
 
@@ -177,7 +191,10 @@ class AuthServiceImplTest {
                 .thenReturn(true);
         when(refreshTokenService.createRefreshToken(10L))
                 .thenReturn("refresh-token");
-        when(jwtService.generateAccessToken(user)).thenReturn("jwt-token");
+        when(permissionService.getActivePermissionsForRoles(user.getRoles()))
+                .thenReturn(ACTIVE_PERMISSIONS);
+        when(jwtService.generateAccessToken(user, ACTIVE_PERMISSIONS))
+                .thenReturn("jwt-token");
         when(jwtService.getAccessTokenExpirationSeconds()).thenReturn(3600L);
 
         AuthenticationResult result = authService.login(request);
@@ -251,7 +268,10 @@ class AuthServiceImplTest {
         );
 
         assertEquals("Account is not active", exception.getMessage());
-        verify(jwtService, never()).generateAccessToken(any(User.class));
+        verify(jwtService, never()).generateAccessToken(
+                any(User.class),
+                anySet()
+        );
         verifyNoInteractions(refreshTokenService);
     }
 
@@ -267,7 +287,10 @@ class AuthServiceImplTest {
                 .thenReturn(true);
         when(refreshTokenService.createRefreshToken(10L))
                 .thenReturn("refresh-token");
-        when(jwtService.generateAccessToken(user)).thenReturn("jwt-token");
+        when(permissionService.getActivePermissionsForRoles(user.getRoles()))
+                .thenReturn(ACTIVE_PERMISSIONS);
+        when(jwtService.generateAccessToken(user, ACTIVE_PERMISSIONS))
+                .thenReturn("jwt-token");
         when(jwtService.getAccessTokenExpirationSeconds()).thenReturn(3600L);
 
         AuthenticationResult result = authService.login(request);
@@ -319,7 +342,10 @@ class AuthServiceImplTest {
 
         assertEquals("Account is not active", exception.getMessage());
         verify(refreshTokenService).revokeAllForUser(10L);
-        verify(jwtService, never()).generateAccessToken(any());
+        verify(jwtService, never()).generateAccessToken(
+                any(User.class),
+                anySet()
+        );
     }
 
     @Test
@@ -332,7 +358,10 @@ class AuthServiceImplTest {
                         "rotated-refresh-token"
                 ));
         when(userRepository.findById(10L)).thenReturn(Optional.of(user));
-        when(jwtService.generateAccessToken(user)).thenReturn("jwt-token");
+        when(permissionService.getActivePermissionsForRoles(user.getRoles()))
+                .thenReturn(ACTIVE_PERMISSIONS);
+        when(jwtService.generateAccessToken(user, ACTIVE_PERMISSIONS))
+                .thenReturn("jwt-token");
         when(jwtService.getAccessTokenExpirationSeconds()).thenReturn(3600L);
 
         AuthenticationResult result = authService.refresh("refresh-token");

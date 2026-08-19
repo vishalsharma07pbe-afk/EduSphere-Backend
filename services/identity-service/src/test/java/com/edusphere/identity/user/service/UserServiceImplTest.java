@@ -1,8 +1,10 @@
 package com.edusphere.identity.user.service;
 
+import com.edusphere.identity.auth.security.AuthorizationContext;
 import com.edusphere.identity.common.dto.PageResponse;
 import com.edusphere.identity.auth.activation.event.UserActivationRequestedEvent;
 import com.edusphere.identity.auth.refreshtoken.service.RefreshTokenService;
+import com.edusphere.identity.permission.enums.PermissionCode;
 import com.edusphere.identity.roleapproval.entity.RoleAssignmentRequest;
 import com.edusphere.identity.roleapproval.enums.ApprovalStatus;
 import com.edusphere.identity.roleapproval.exception.ApprovalNotAllowedException;
@@ -10,6 +12,7 @@ import com.edusphere.identity.roleapproval.exception.InvalidRoleRequestException
 import com.edusphere.identity.roleapproval.mapper.RoleAssignmentRequestMapper;
 import com.edusphere.identity.roleapproval.policy.RoleApprovalPolicy;
 import com.edusphere.identity.roleapproval.repository.RoleAssignmentRequestRepository;
+import com.edusphere.identity.roleremoval.repository.RoleRemovalRequestRepository;
 import com.edusphere.identity.user.dto.*;
 import com.edusphere.identity.user.entity.User;
 import com.edusphere.identity.user.enums.UserRole;
@@ -18,6 +21,7 @@ import com.edusphere.identity.common.exception.DuplicateResourceException;
 import com.edusphere.identity.common.exception.ResourceNotFoundException;
 import com.edusphere.identity.user.exception.InvalidUserStatusTransitionException;
 import com.edusphere.identity.user.mapper.UserMapper;
+import com.edusphere.identity.user.policy.UserStatusAuthorizationPolicy;
 import com.edusphere.identity.user.policy.UserStatusTransitionPolicy;
 import com.edusphere.identity.user.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -49,6 +53,8 @@ public class UserServiceImplTest {
     @Mock
     private RoleAssignmentRequestRepository roleRequestRepository;
     @Mock
+    private RoleRemovalRequestRepository roleRemovalRequestRepository;
+    @Mock
     private RoleAssignmentRequestMapper roleRequestMapper;
     @Mock
     private ApplicationEventPublisher eventPublisher;
@@ -66,11 +72,17 @@ public class UserServiceImplTest {
                 userMapper,
                 roleApprovalPolicy,
                 roleRequestRepository,
+                roleRemovalRequestRepository,
                 roleRequestMapper,
                 eventPublisher,
                 statusTransitionPolicy,
+                new UserStatusAuthorizationPolicy(statusTransitionPolicy),
                 refreshTokenService
         );
+
+        lenient()
+                .when(roleApprovalPolicy.getSensitiveRoles(anySet()))
+                .thenReturn(Set.of());
     }
 
     @Test
@@ -90,7 +102,7 @@ public class UserServiceImplTest {
 
         DuplicateResourceException exception = assertThrows(
                 DuplicateResourceException.class,
-                () -> userService.createUser(1L, 99L, request)
+                () -> userService.createUser(1L, auth(99L), request)
         );
 
         assertEquals(
@@ -130,7 +142,7 @@ public class UserServiceImplTest {
 
         DuplicateResourceException exception = assertThrows(
                 DuplicateResourceException.class,
-                () -> userService.createUser(1L, 99L, request)
+                () -> userService.createUser(1L, auth(99L), request)
         );
 
         assertEquals(
@@ -211,7 +223,7 @@ public class UserServiceImplTest {
                 .thenReturn(expectedResponse);
 
         UserResponse actualResponse =
-                userService.createUser(1L, 99L, request);
+                userService.createUser(1L, auth(99L), request);
 
         assertSame(expectedResponse, actualResponse);
 
@@ -261,7 +273,7 @@ public class UserServiceImplTest {
         when(userRepository.save(user)).thenReturn(user);
         when(userMapper.toResponse(user)).thenReturn(expectedResponse);
 
-        UserResponse actualResponse = userService.createUser(1L, 99L, request);
+        UserResponse actualResponse = userService.createUser(1L, auth(99L), request);
 
         assertSame(expectedResponse, actualResponse);
         assertNull(user.getPasswordHash());
@@ -444,7 +456,7 @@ public class UserServiceImplTest {
 
         ApprovalNotAllowedException exception = assertThrows(
                 ApprovalNotAllowedException.class,
-                () -> userService.updateUserStatus(1L, 99L, 10L, request)
+                () -> userService.updateUserStatus(1L, auth(99L), 10L, request)
         );
 
         assertEquals(
@@ -471,7 +483,7 @@ public class UserServiceImplTest {
 
         ResourceNotFoundException exception = assertThrows(
                 ResourceNotFoundException.class,
-                () -> userService.updateUserRoles(1L, 99L, 10L, request)
+                () -> userService.updateUserRoles(1L, auth(99L), 10L, request)
         );
 
         assertEquals(
@@ -493,7 +505,7 @@ public class UserServiceImplTest {
 
         InvalidRoleRequestException exception = assertThrows(
                 InvalidRoleRequestException.class,
-                () -> userService.updateUserRoles(1L, 99L, 10L, request)
+                () -> userService.updateUserRoles(1L, auth(99L), 10L, request)
         );
 
         assertEquals(
@@ -517,7 +529,7 @@ public class UserServiceImplTest {
 
         InvalidRoleRequestException exception = assertThrows(
                 InvalidRoleRequestException.class,
-                () -> userService.updateUserRoles(1L, 10L, 10L, request)
+                () -> userService.updateUserRoles(1L, auth(10L), 10L, request)
         );
 
         assertEquals(
@@ -543,7 +555,7 @@ public class UserServiceImplTest {
 
         InvalidRoleRequestException exception = assertThrows(
                 InvalidRoleRequestException.class,
-                () -> userService.updateUserRoles(1L, 99L, 10L, request)
+                () -> userService.updateUserRoles(1L, auth(99L), 10L, request)
         );
 
         assertEquals(
@@ -571,10 +583,9 @@ public class UserServiceImplTest {
         when(userMapper.toResponse(target)).thenReturn(expectedResponse);
 
         UserResponse actualResponse =
-                userService.updateUserRoles(1L, 99L, 10L, request);
+                userService.updateUserRoles(1L, auth(99L), 10L, request);
 
         assertSame(expectedResponse, actualResponse);
-        verifyNoInteractions(roleApprovalPolicy);
         verify(userRepository, never()).save(any(User.class));
         verify(roleRequestRepository, never()).save(any());
     }
@@ -605,7 +616,7 @@ public class UserServiceImplTest {
 
         InvalidRoleRequestException exception = assertThrows(
                 InvalidRoleRequestException.class,
-                () -> userService.updateUserRoles(1L, 99L, 10L, request)
+                () -> userService.updateUserRoles(1L, auth(99L), 10L, request)
         );
 
         assertEquals(
@@ -656,7 +667,7 @@ public class UserServiceImplTest {
 
         DuplicateResourceException exception = assertThrows(
                 DuplicateResourceException.class,
-                () -> userService.updateUserRoles(1L, 99L, 10L, request)
+                () -> userService.updateUserRoles(1L, auth(99L), 10L, request)
         );
 
         assertEquals(
@@ -720,7 +731,7 @@ public class UserServiceImplTest {
         when(userMapper.toResponse(user)).thenReturn(expectedResponse);
 
         UserResponse actualResponse =
-                userService.updateUserRoles(1L, 99L, 10L, request);
+                userService.updateUserRoles(1L, auth(99L), 10L, request);
 
         assertSame(expectedResponse, actualResponse);
         assertEquals(Set.of(UserRole.TEACHER), user.getRoles());
@@ -744,7 +755,7 @@ public class UserServiceImplTest {
 
         ResourceNotFoundException exception = assertThrows(
                 ResourceNotFoundException.class,
-                () -> userService.updateUserStatus(1L, 99L, 10L, request)
+                () -> userService.updateUserStatus(1L, auth(99L), 10L, request)
         );
 
         assertEquals(
@@ -775,7 +786,7 @@ public class UserServiceImplTest {
 
         InvalidUserStatusTransitionException exception = assertThrows(
                 InvalidUserStatusTransitionException.class,
-                () -> userService.updateUserStatus(1L, 99L, 10L, request)
+                () -> userService.updateUserStatus(1L, auth(99L), 10L, request)
         );
 
         assertEquals(
@@ -809,7 +820,7 @@ public class UserServiceImplTest {
         when(userMapper.toResponse(target)).thenReturn(expectedResponse);
 
         UserResponse actualResponse =
-                userService.updateUserStatus(1L, 99L, 10L, request);
+                userService.updateUserStatus(1L, auth(99L), 10L, request);
 
         assertSame(expectedResponse, actualResponse);
         verify(userRepository, never()).save(any(User.class));
@@ -839,7 +850,7 @@ public class UserServiceImplTest {
         when(userMapper.toResponse(target)).thenReturn(expectedResponse);
 
         UserResponse actualResponse =
-                userService.updateUserStatus(1L, 99L, 10L, request);
+                userService.updateUserStatus(1L, auth(99L), 10L, request);
 
         assertSame(expectedResponse, actualResponse);
         assertEquals(UserStatus.SUSPENDED, target.getStatus());
@@ -883,5 +894,21 @@ public class UserServiceImplTest {
         response.setOrganizationId(organizationId);
         response.setUsername(username);
         return response;
+    }
+
+    private static AuthorizationContext auth(Long userId) {
+        return new AuthorizationContext(
+                userId,
+                Set.of(
+                        PermissionCode.USER_CREATE,
+                        PermissionCode.ROLE_ASSIGN_ROUTINE,
+                        PermissionCode.ROLE_REMOVE_ROUTINE,
+                        PermissionCode.ROLE_ASSIGNMENT_REQUEST_CREATE,
+                        PermissionCode.USER_SUSPEND,
+                        PermissionCode.USER_DEACTIVATE,
+                        PermissionCode.USER_REACTIVATE,
+                        PermissionCode.USER_ACTIVATION_RESEND
+                )
+        );
     }
 }
