@@ -8,6 +8,7 @@ import com.edusphere.identity.roleapproval.repository.RoleAssignmentApprovalRepo
 import com.edusphere.identity.roleapproval.repository.RoleAssignmentRequestRepository;
 import com.edusphere.identity.roleremoval.repository.RoleRemovalApprovalRepository;
 import com.edusphere.identity.roleremoval.repository.RoleRemovalRequestRepository;
+import com.edusphere.identity.securityaudit.repository.SecurityAuditEventRepository;
 import com.edusphere.identity.user.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -30,6 +31,8 @@ class IdentityServiceApplicationTests {
     private RoleRemovalRequestRepository removalRequestRepository;
     @MockitoBean
     private RoleRemovalApprovalRepository removalApprovalRepository;
+    @MockitoBean
+    private SecurityAuditEventRepository securityAuditEventRepository;
     @MockitoBean
     private UserActivationTokenRepository activationTokenRepository;
     @MockitoBean

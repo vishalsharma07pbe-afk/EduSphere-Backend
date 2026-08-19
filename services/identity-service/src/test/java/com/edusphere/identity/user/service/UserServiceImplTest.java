@@ -13,6 +13,7 @@ import com.edusphere.identity.roleapproval.mapper.RoleAssignmentRequestMapper;
 import com.edusphere.identity.roleapproval.policy.RoleApprovalPolicy;
 import com.edusphere.identity.roleapproval.repository.RoleAssignmentRequestRepository;
 import com.edusphere.identity.roleremoval.repository.RoleRemovalRequestRepository;
+import com.edusphere.identity.securityaudit.service.SecurityAuditService;
 import com.edusphere.identity.user.dto.*;
 import com.edusphere.identity.user.entity.User;
 import com.edusphere.identity.user.enums.UserRole;
@@ -62,6 +63,8 @@ public class UserServiceImplTest {
     private UserStatusTransitionPolicy statusTransitionPolicy;
     @Mock
     private RefreshTokenService refreshTokenService;
+    @Mock
+    private SecurityAuditService auditService;
 
     private UserServiceImpl userService;
 
@@ -77,7 +80,8 @@ public class UserServiceImplTest {
                 eventPublisher,
                 statusTransitionPolicy,
                 new UserStatusAuthorizationPolicy(statusTransitionPolicy),
-                refreshTokenService
+                refreshTokenService,
+                auditService
         );
 
         lenient()

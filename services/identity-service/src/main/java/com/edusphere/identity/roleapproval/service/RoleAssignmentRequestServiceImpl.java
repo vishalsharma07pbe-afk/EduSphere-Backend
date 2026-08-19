@@ -28,6 +28,11 @@ import com.edusphere.identity.roleapproval.mapper.RoleAssignmentApprovalMapper;
 import com.edusphere.identity.roleapproval.repository.RoleAssignmentApprovalRepository;
 import java.util.List;
 import com.edusphere.identity.roleapproval.exception.InvalidApprovalStateException;
+import com.edusphere.identity.securityaudit.enums.SecurityAuditAction;
+import com.edusphere.identity.securityaudit.enums.SecurityAuditOutcome;
+import com.edusphere.identity.securityaudit.service.SecurityAuditService;
+
+import java.util.Map;
 import java.util.Set;
 
 @Service
@@ -39,6 +44,7 @@ public class RoleAssignmentRequestServiceImpl implements RoleAssignmentRequestSe
     private final RoleAssignmentRequestMapper requestMapper;
     private final RoleAssignmentApprovalRepository approvalRepository;
     private final RoleAssignmentApprovalMapper approvalMapper;
+    private final SecurityAuditService auditService;
 
     public RoleAssignmentRequestServiceImpl(
             RoleAssignmentRequestRepository requestRepository,
@@ -46,7 +52,8 @@ public class RoleAssignmentRequestServiceImpl implements RoleAssignmentRequestSe
             UserRepository userRepository,
             RoleApprovalPolicy approvalPolicy,
             RoleAssignmentRequestMapper requestMapper,
-            RoleAssignmentApprovalMapper approvalMapper
+            RoleAssignmentApprovalMapper approvalMapper,
+            SecurityAuditService auditService
     ) {
         this.requestRepository = requestRepository;
         this.approvalRepository = approvalRepository;
@@ -54,6 +61,7 @@ public class RoleAssignmentRequestServiceImpl implements RoleAssignmentRequestSe
         this.approvalPolicy = approvalPolicy;
         this.requestMapper = requestMapper;
         this.approvalMapper = approvalMapper;
+        this.auditService = auditService;
     }
 
     @Override
@@ -136,6 +144,19 @@ public class RoleAssignmentRequestServiceImpl implements RoleAssignmentRequestSe
 
         RoleAssignmentRequest savedRequest =
                 requestRepository.save(roleRequest);
+
+        auditService.record(
+                organizationId,
+                requester.getId(),
+                SecurityAuditAction.ROLE_ASSIGNMENT_REQUEST_CREATE,
+                SecurityAuditOutcome.SUCCESS,
+                "ROLE_ASSIGNMENT_REQUEST",
+                savedRequest.getId(),
+                Map.of(
+                        "targetUserId", targetUser.getId(),
+                        "role", request.getRequestedRole()
+                )
+        );
 
         return requestMapper.toResponse(savedRequest);
     }
@@ -290,6 +311,18 @@ public class RoleAssignmentRequestServiceImpl implements RoleAssignmentRequestSe
         }
 
         roleRequest.cancel();
+        auditService.record(
+                organizationId,
+                authorizationContext.getUserId(),
+                SecurityAuditAction.ROLE_ASSIGNMENT_REQUEST_CANCEL,
+                SecurityAuditOutcome.SUCCESS,
+                "ROLE_ASSIGNMENT_REQUEST",
+                roleRequest.getId(),
+                Map.of(
+                        "targetUserId", roleRequest.getUserId(),
+                        "role", roleRequest.getRequestedRole()
+                )
+        );
         return requestMapper.toResponse(roleRequest);
     }
 

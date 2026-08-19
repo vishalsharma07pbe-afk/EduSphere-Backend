@@ -15,6 +15,7 @@ import com.edusphere.identity.roleapproval.mapper.RoleAssignmentApprovalMapper;
 import com.edusphere.identity.roleapproval.policy.RoleApprovalPolicy;
 import com.edusphere.identity.roleapproval.repository.RoleAssignmentApprovalRepository;
 import com.edusphere.identity.roleapproval.repository.RoleAssignmentRequestRepository;
+import com.edusphere.identity.securityaudit.service.SecurityAuditService;
 import com.edusphere.identity.user.entity.User;
 import com.edusphere.identity.user.enums.UserRole;
 import com.edusphere.identity.user.enums.UserStatus;
@@ -51,6 +52,8 @@ class RoleAssignmentRequestServiceImplTest {
     private RoleAssignmentApprovalRepository approvalRepository;
     @Mock
     private RoleAssignmentApprovalMapper approvalMapper;
+    @Mock
+    private SecurityAuditService auditService;
 
     private RoleAssignmentRequestServiceImpl service;
 
@@ -62,7 +65,8 @@ class RoleAssignmentRequestServiceImplTest {
                 userRepository,
                 approvalPolicy,
                 requestMapper,
-                approvalMapper
+                approvalMapper,
+                auditService
         );
     }
 

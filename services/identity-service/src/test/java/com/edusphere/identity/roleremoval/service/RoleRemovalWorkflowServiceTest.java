@@ -20,6 +20,7 @@ import com.edusphere.identity.roleremoval.policy.ProtectedRoleRemovalPolicy;
 import com.edusphere.identity.roleremoval.policy.RoleRemovalApprovalPolicy;
 import com.edusphere.identity.roleremoval.repository.RoleRemovalApprovalRepository;
 import com.edusphere.identity.roleremoval.repository.RoleRemovalRequestRepository;
+import com.edusphere.identity.securityaudit.service.SecurityAuditService;
 import com.edusphere.identity.user.entity.User;
 import com.edusphere.identity.user.enums.UserRole;
 import com.edusphere.identity.user.enums.UserStatus;
@@ -49,6 +50,8 @@ class RoleRemovalWorkflowServiceTest {
     private UserRepository userRepository;
     @Mock
     private RefreshTokenService refreshTokenService;
+    @Mock
+    private SecurityAuditService auditService;
 
     private RoleRemovalRequestServiceImpl requestService;
     private RoleRemovalApprovalServiceImpl approvalService;
@@ -76,7 +79,8 @@ class RoleRemovalWorkflowServiceTest {
                 removalPolicy,
                 protectedPolicy,
                 requestMapper,
-                approvalMapper
+                approvalMapper,
+                auditService
         );
         approvalService = new RoleRemovalApprovalServiceImpl(
                 requestRepository,
@@ -85,7 +89,8 @@ class RoleRemovalWorkflowServiceTest {
                 removalPolicy,
                 protectedPolicy,
                 approvalMapper,
-                refreshTokenService
+                refreshTokenService,
+                auditService
         );
     }
 

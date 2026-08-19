@@ -28,6 +28,9 @@ import com.edusphere.identity.user.enums.UserRole;
 import com.edusphere.identity.user.enums.UserStatus;
 import com.edusphere.identity.user.mapper.UserMapper;
 import com.edusphere.identity.user.repository.UserRepository;
+import com.edusphere.identity.securityaudit.enums.SecurityAuditAction;
+import com.edusphere.identity.securityaudit.enums.SecurityAuditOutcome;
+import com.edusphere.identity.securityaudit.service.SecurityAuditService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -36,6 +39,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.edusphere.identity.roleapproval.exception.ApprovalNotAllowedException;
 
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 @Service
@@ -52,6 +56,7 @@ public class UserServiceImpl implements UserService {
     private final UserStatusTransitionPolicy statusTransitionPolicy;
     private final UserStatusAuthorizationPolicy statusAuthorizationPolicy;
     private final RefreshTokenService refreshTokenService;
+    private final SecurityAuditService auditService;
 
     public UserServiceImpl(
             UserRepository userRepository,
@@ -63,7 +68,8 @@ public class UserServiceImpl implements UserService {
             ApplicationEventPublisher eventPublisher,
             UserStatusTransitionPolicy statusTransitionPolicy,
             UserStatusAuthorizationPolicy statusAuthorizationPolicy,
-            RefreshTokenService refreshTokenService
+            RefreshTokenService refreshTokenService,
+            SecurityAuditService auditService
     ) {
         this.userRepository = userRepository;
         this.userMapper = userMapper;
@@ -75,6 +81,7 @@ public class UserServiceImpl implements UserService {
         this.statusTransitionPolicy = statusTransitionPolicy;
         this.statusAuthorizationPolicy = statusAuthorizationPolicy;
         this.refreshTokenService = refreshTokenService;
+        this.auditService = auditService;
     }
 
     @Override
@@ -200,6 +207,16 @@ public class UserServiceImpl implements UserService {
                     )
             );
         }
+
+        auditService.record(
+                organizationId,
+                authorizationContext.getUserId(),
+                SecurityAuditAction.USER_CREATE,
+                SecurityAuditOutcome.SUCCESS,
+                "USER",
+                savedUser.getId(),
+                Map.of("status", savedUser.getStatus())
+        );
 
         return userMapper.toResponse(savedUser);
     }
@@ -465,6 +482,30 @@ public class UserServiceImpl implements UserService {
 
         User updatedUser = userRepository.save(targetUser);
 
+        for (UserRole routineRole : routineRoles) {
+            auditService.record(
+                    organizationId,
+                    authorizationContext.getUserId(),
+                    SecurityAuditAction.ROUTINE_ROLE_ASSIGN,
+                    SecurityAuditOutcome.SUCCESS,
+                    "USER",
+                    targetUser.getId(),
+                    Map.of("role", routineRole)
+            );
+        }
+
+        for (UserRole removedRole : rolesToRemove) {
+            auditService.record(
+                    organizationId,
+                    authorizationContext.getUserId(),
+                    SecurityAuditAction.ROUTINE_ROLE_REMOVE,
+                    SecurityAuditOutcome.SUCCESS,
+                    "USER",
+                    targetUser.getId(),
+                    Map.of("role", removedRole)
+            );
+        }
+
         return userMapper.toResponse(updatedUser);
     }
 
@@ -556,6 +597,19 @@ public class UserServiceImpl implements UserService {
                     targetUser.getId()
             );
         }
+
+        auditService.record(
+                organizationId,
+                authorizationContext.getUserId(),
+                SecurityAuditAction.USER_STATUS_CHANGE,
+                SecurityAuditOutcome.SUCCESS,
+                "USER",
+                targetUser.getId(),
+                Map.of(
+                        "fromStatus", currentStatus,
+                        "toStatus", requestedStatus
+                )
+        );
 
         return userMapper.toResponse(updatedUser);
     }

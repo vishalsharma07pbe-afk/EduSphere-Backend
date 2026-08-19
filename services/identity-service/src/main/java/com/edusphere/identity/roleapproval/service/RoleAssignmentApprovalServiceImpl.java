@@ -23,6 +23,9 @@ import com.edusphere.identity.user.enums.UserRole;
 import com.edusphere.identity.user.enums.UserStatus;
 import com.edusphere.identity.common.exception.ResourceNotFoundException;
 import com.edusphere.identity.user.repository.UserRepository;
+import com.edusphere.identity.securityaudit.enums.SecurityAuditAction;
+import com.edusphere.identity.securityaudit.enums.SecurityAuditOutcome;
+import com.edusphere.identity.securityaudit.service.SecurityAuditService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -30,6 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @Service
@@ -42,6 +46,7 @@ public class RoleAssignmentApprovalServiceImpl
     private final RoleApprovalPolicy approvalPolicy;
     private final RoleAssignmentApprovalMapper approvalMapper;
     private final ApplicationEventPublisher eventPublisher;
+    private final SecurityAuditService auditService;
 
     public RoleAssignmentApprovalServiceImpl(
             RoleAssignmentRequestRepository requestRepository,
@@ -49,7 +54,8 @@ public class RoleAssignmentApprovalServiceImpl
             UserRepository userRepository,
             RoleApprovalPolicy approvalPolicy,
             RoleAssignmentApprovalMapper approvalMapper,
-            ApplicationEventPublisher eventPublisher
+            ApplicationEventPublisher eventPublisher,
+            SecurityAuditService auditService
     ) {
         this.requestRepository = requestRepository;
         this.approvalRepository = approvalRepository;
@@ -57,6 +63,7 @@ public class RoleAssignmentApprovalServiceImpl
         this.approvalPolicy = approvalPolicy;
         this.approvalMapper = approvalMapper;
         this.eventPublisher = eventPublisher;
+        this.auditService = auditService;
     }
 
     @Override
@@ -165,6 +172,22 @@ public class RoleAssignmentApprovalServiceImpl
         RoleAssignmentApproval savedApproval =
                 approvalRepository.save(approval);
 
+        auditService.record(
+                organizationId,
+                approver.getId(),
+                SecurityAuditAction.ROLE_ASSIGNMENT_DECISION,
+                decisionRequest.getDecision() == ApprovalDecision.REJECTED
+                        ? SecurityAuditOutcome.REJECTED
+                        : SecurityAuditOutcome.SUCCESS,
+                "ROLE_ASSIGNMENT_REQUEST",
+                roleRequest.getId(),
+                Map.of(
+                        "targetUserId", roleRequest.getUserId(),
+                        "role", roleRequest.getRequestedRole(),
+                        "decision", decisionRequest.getDecision()
+                )
+        );
+
         /*
          * Any rejection completes this individual role request.
          * The requested role is not assigned.
@@ -212,6 +235,19 @@ public class RoleAssignmentApprovalServiceImpl
             );
 
             roleRequest.approve();
+
+            auditService.record(
+                    organizationId,
+                    approver.getId(),
+                    SecurityAuditAction.ROLE_ASSIGNMENT_FINAL_ASSIGN,
+                    SecurityAuditOutcome.SUCCESS,
+                    "USER",
+                    targetUser.getId(),
+                    Map.of(
+                            "requestId", roleRequest.getId(),
+                            "role", roleRequest.getRequestedRole()
+                    )
+            );
 
             // New sensitive-role users can activate only after approvals finish.
             updateOnboardingStatusIfComplete(

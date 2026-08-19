@@ -23,12 +23,16 @@ import com.edusphere.identity.user.entity.User;
 import com.edusphere.identity.user.enums.UserRole;
 import com.edusphere.identity.user.enums.UserStatus;
 import com.edusphere.identity.user.repository.UserRepository;
+import com.edusphere.identity.securityaudit.enums.SecurityAuditAction;
+import com.edusphere.identity.securityaudit.enums.SecurityAuditOutcome;
+import com.edusphere.identity.securityaudit.service.SecurityAuditService;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @Service
@@ -42,6 +46,7 @@ public class RoleRemovalApprovalServiceImpl
     private final ProtectedRoleRemovalPolicy protectedRoleRemovalPolicy;
     private final RoleRemovalApprovalMapper approvalMapper;
     private final RefreshTokenService refreshTokenService;
+    private final SecurityAuditService auditService;
 
     public RoleRemovalApprovalServiceImpl(
             RoleRemovalRequestRepository requestRepository,
@@ -50,7 +55,8 @@ public class RoleRemovalApprovalServiceImpl
             RoleRemovalApprovalPolicy approvalPolicy,
             ProtectedRoleRemovalPolicy protectedRoleRemovalPolicy,
             RoleRemovalApprovalMapper approvalMapper,
-            RefreshTokenService refreshTokenService
+            RefreshTokenService refreshTokenService,
+            SecurityAuditService auditService
     ) {
         this.requestRepository = requestRepository;
         this.approvalRepository = approvalRepository;
@@ -59,6 +65,7 @@ public class RoleRemovalApprovalServiceImpl
         this.protectedRoleRemovalPolicy = protectedRoleRemovalPolicy;
         this.approvalMapper = approvalMapper;
         this.refreshTokenService = refreshTokenService;
+        this.auditService = auditService;
     }
 
     @Override
@@ -154,6 +161,22 @@ public class RoleRemovalApprovalServiceImpl
         RoleRemovalApproval savedApproval =
                 approvalRepository.save(approval);
 
+        auditService.record(
+                organizationId,
+                approver.getId(),
+                SecurityAuditAction.ROLE_REMOVAL_DECISION,
+                decisionRequest.getDecision() == ApprovalDecision.REJECTED
+                        ? SecurityAuditOutcome.REJECTED
+                        : SecurityAuditOutcome.SUCCESS,
+                "ROLE_REMOVAL_REQUEST",
+                roleRequest.getId(),
+                Map.of(
+                        "targetUserId", roleRequest.getUserId(),
+                        "role", roleRequest.getRequestedRole(),
+                        "decision", decisionRequest.getDecision()
+                )
+        );
+
         if (decisionRequest.getDecision() == ApprovalDecision.REJECTED) {
             roleRequest.reject();
             return approvalMapper.toResponse(savedApproval);
@@ -166,7 +189,11 @@ public class RoleRemovalApprovalServiceImpl
                         roleRequest.getRequestedRole()
                 )
         )) {
-            completeApprovedRemoval(organizationId, roleRequest);
+            completeApprovedRemoval(
+                    organizationId,
+                    roleRequest,
+                    approver.getId()
+            );
         }
 
         return approvalMapper.toResponse(savedApproval);
@@ -205,7 +232,8 @@ public class RoleRemovalApprovalServiceImpl
 
     private void completeApprovedRemoval(
             Long organizationId,
-            RoleRemovalRequest roleRequest
+            RoleRemovalRequest roleRequest,
+            Long finalApproverUserId
     ) {
         User targetUser = userRepository
                 .findByOrganizationIdAndId(
@@ -231,6 +259,18 @@ public class RoleRemovalApprovalServiceImpl
         targetUser.removeRole(roleRequest.getRequestedRole());
         roleRequest.approve();
         refreshTokenService.revokeAllForUser(targetUser.getId());
+        auditService.record(
+                organizationId,
+                finalApproverUserId,
+                SecurityAuditAction.ROLE_REMOVAL_FINAL_REMOVE,
+                SecurityAuditOutcome.SUCCESS,
+                "USER",
+                targetUser.getId(),
+                Map.of(
+                        "requestId", roleRequest.getId(),
+                        "role", roleRequest.getRequestedRole()
+                )
+        );
     }
 
     private void requirePermission(

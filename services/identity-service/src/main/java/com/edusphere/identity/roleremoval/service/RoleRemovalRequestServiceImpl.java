@@ -24,12 +24,16 @@ import com.edusphere.identity.user.entity.User;
 import com.edusphere.identity.user.enums.UserRole;
 import com.edusphere.identity.user.enums.UserStatus;
 import com.edusphere.identity.user.repository.UserRepository;
+import com.edusphere.identity.securityaudit.enums.SecurityAuditAction;
+import com.edusphere.identity.securityaudit.enums.SecurityAuditOutcome;
+import com.edusphere.identity.securityaudit.service.SecurityAuditService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @Service
@@ -43,6 +47,7 @@ public class RoleRemovalRequestServiceImpl
     private final ProtectedRoleRemovalPolicy protectedRoleRemovalPolicy;
     private final RoleRemovalRequestMapper requestMapper;
     private final RoleRemovalApprovalMapper approvalMapper;
+    private final SecurityAuditService auditService;
 
     public RoleRemovalRequestServiceImpl(
             RoleRemovalRequestRepository requestRepository,
@@ -51,7 +56,8 @@ public class RoleRemovalRequestServiceImpl
             RoleRemovalApprovalPolicy approvalPolicy,
             ProtectedRoleRemovalPolicy protectedRoleRemovalPolicy,
             RoleRemovalRequestMapper requestMapper,
-            RoleRemovalApprovalMapper approvalMapper
+            RoleRemovalApprovalMapper approvalMapper,
+            SecurityAuditService auditService
     ) {
         this.requestRepository = requestRepository;
         this.approvalRepository = approvalRepository;
@@ -60,6 +66,7 @@ public class RoleRemovalRequestServiceImpl
         this.protectedRoleRemovalPolicy = protectedRoleRemovalPolicy;
         this.requestMapper = requestMapper;
         this.approvalMapper = approvalMapper;
+        this.auditService = auditService;
     }
 
     @Override
@@ -146,9 +153,23 @@ public class RoleRemovalRequestServiceImpl
                         request
                 );
 
-        return requestMapper.toResponse(
-                requestRepository.save(roleRequest)
+        RoleRemovalRequest savedRequest =
+                requestRepository.save(roleRequest);
+
+        auditService.record(
+                organizationId,
+                requester.getId(),
+                SecurityAuditAction.ROLE_REMOVAL_REQUEST_CREATE,
+                SecurityAuditOutcome.SUCCESS,
+                "ROLE_REMOVAL_REQUEST",
+                savedRequest.getId(),
+                Map.of(
+                        "targetUserId", targetUser.getId(),
+                        "role", request.getRequestedRole()
+                )
         );
+
+        return requestMapper.toResponse(savedRequest);
     }
 
     @Override
@@ -308,6 +329,18 @@ public class RoleRemovalRequestServiceImpl
         }
 
         roleRequest.cancel();
+        auditService.record(
+                organizationId,
+                authorizationContext.getUserId(),
+                SecurityAuditAction.ROLE_REMOVAL_REQUEST_CANCEL,
+                SecurityAuditOutcome.SUCCESS,
+                "ROLE_REMOVAL_REQUEST",
+                roleRequest.getId(),
+                Map.of(
+                        "targetUserId", roleRequest.getUserId(),
+                        "role", roleRequest.getRequestedRole()
+                )
+        );
         return requestMapper.toResponse(roleRequest);
     }
 

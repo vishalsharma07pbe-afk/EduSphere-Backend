@@ -18,6 +18,7 @@ import com.edusphere.identity.auth.security.JwtService;
 import com.edusphere.identity.common.exception.ResourceNotFoundException;
 import com.edusphere.identity.permission.enums.PermissionCode;
 import com.edusphere.identity.permission.service.PermissionService;
+import com.edusphere.identity.securityaudit.service.SecurityAuditService;
 import com.edusphere.identity.user.entity.User;
 import com.edusphere.identity.user.enums.UserRole;
 import com.edusphere.identity.user.enums.UserStatus;
@@ -54,6 +55,8 @@ class AuthServiceImplTest {
     private RefreshTokenService refreshTokenService;
     @Mock
     private PermissionService permissionService;
+    @Mock
+    private SecurityAuditService auditService;
 
     private AuthServiceImpl authService;
     private PasswordChangeProperties passwordChangeProperties;
@@ -83,7 +86,8 @@ class AuthServiceImplTest {
                 refreshTokenService,
                 new LoginLockoutService(lockoutProperties),
                 passwordChangeProperties,
-                permissionService
+                permissionService,
+                auditService
         );
     }
 

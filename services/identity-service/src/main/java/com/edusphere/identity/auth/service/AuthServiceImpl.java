@@ -23,8 +23,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.edusphere.identity.permission.enums.PermissionCode;
 import com.edusphere.identity.permission.service.PermissionService;
+import com.edusphere.identity.securityaudit.enums.SecurityAuditAction;
+import com.edusphere.identity.securityaudit.enums.SecurityAuditOutcome;
+import com.edusphere.identity.securityaudit.service.SecurityAuditService;
 
 import java.time.OffsetDateTime;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -40,6 +44,7 @@ public class AuthServiceImpl implements AuthService {
     private final LoginLockoutService loginLockoutService;
     private final PasswordChangeProperties passwordChangeProperties;
     private final PermissionService permissionService;
+    private final SecurityAuditService auditService;
 
     public AuthServiceImpl(
             UserRepository userRepository,
@@ -48,7 +53,8 @@ public class AuthServiceImpl implements AuthService {
             RefreshTokenService refreshTokenService,
             LoginLockoutService loginLockoutService,
             PasswordChangeProperties passwordChangeProperties,
-            PermissionService permissionService
+            PermissionService permissionService,
+            SecurityAuditService auditService
     ) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
@@ -57,6 +63,7 @@ public class AuthServiceImpl implements AuthService {
         this.loginLockoutService = loginLockoutService;
         this.passwordChangeProperties = passwordChangeProperties;
         this.permissionService = permissionService;
+        this.auditService = auditService;
     }
 
     @Override
@@ -70,9 +77,22 @@ public class AuthServiceImpl implements AuthService {
                         request.getOrganizationId(),
                         request.getUsername()
                 )
-                .orElseThrow(() -> new InvalidCredentialsException(
-                        INVALID_CREDENTIALS_MESSAGE
-                ));
+                .orElse(null);
+
+        if (user == null) {
+            auditService.record(
+                    request.getOrganizationId(),
+                    null,
+                    SecurityAuditAction.LOGIN_FAILURE,
+                    SecurityAuditOutcome.FAILURE,
+                    "USER",
+                    null,
+                    Map.of("reason", "invalid_credentials")
+            );
+            throw new InvalidCredentialsException(
+                    INVALID_CREDENTIALS_MESSAGE
+            );
+        }
 
         OffsetDateTime currentTime = OffsetDateTime.now();
 
@@ -89,6 +109,15 @@ public class AuthServiceImpl implements AuthService {
         if (!passwordMatches) {
             // Failed attempts are counted even though the public error is generic.
             loginLockoutService.recordFailedLogin(user, currentTime);
+            auditService.record(
+                    user.getOrganizationId(),
+                    user.getId(),
+                    SecurityAuditAction.LOGIN_FAILURE,
+                    SecurityAuditOutcome.FAILURE,
+                    "USER",
+                    user.getId(),
+                    Map.of("reason", "invalid_credentials")
+            );
         }
 
         if (user.getStatus() != UserStatus.ACTIVE) {
@@ -105,6 +134,16 @@ public class AuthServiceImpl implements AuthService {
                 refreshTokenService.createRefreshToken(
                         user.getId()
                 );
+
+        auditService.record(
+                user.getOrganizationId(),
+                user.getId(),
+                SecurityAuditAction.LOGIN_SUCCESS,
+                SecurityAuditOutcome.SUCCESS,
+                "USER",
+                user.getId(),
+                Map.of("username", user.getUsername())
+        );
 
         return createAuthenticationResult(
                 user,
@@ -201,6 +240,16 @@ public class AuthServiceImpl implements AuthService {
 
         // Password changes invalidate stolen or unattended sessions.
         refreshTokenService.revokeAllForUser(user.getId());
+
+        auditService.record(
+                user.getOrganizationId(),
+                user.getId(),
+                SecurityAuditAction.PASSWORD_CHANGE,
+                SecurityAuditOutcome.SUCCESS,
+                "USER",
+                user.getId(),
+                Map.of("sessionsRevoked", true)
+        );
     }
 
     private void enforcePasswordChangeCooldown(User user) {
