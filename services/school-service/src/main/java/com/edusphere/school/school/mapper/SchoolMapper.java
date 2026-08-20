@@ -1,6 +1,7 @@
 package com.edusphere.school.school.mapper;
 
 import com.edusphere.school.school.DTO.CreateSchoolRequest;
+import com.edusphere.school.school.DTO.SchoolOnboardingRequest;
 import com.edusphere.school.school.DTO.SchoolResponse;
 import com.edusphere.school.school.DTO.UpdateSchoolRequest;
 import com.edusphere.school.school.entity.School;
@@ -17,6 +18,19 @@ public class SchoolMapper {
         school.setEmail(request.getEmail());
         school.setPhone(request.getPhone());
         school.setAddress(request.getAddress());
+
+        return school;
+    }
+
+    public School toEntity(SchoolOnboardingRequest request) {
+        School school = new School();
+
+        school.setSchoolCode(request.getSchoolCode());
+        school.setName(request.getName());
+        school.setEmail(request.getEmail());
+        school.setPhone(request.getPhone());
+        school.setAddress(request.getAddress());
+        school.markProvisioningPending();
 
         return school;
     }

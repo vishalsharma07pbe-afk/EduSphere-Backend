@@ -1,0 +1,17 @@
+package com.edusphere.identity.organization.provisioning.service;
+
+import com.edusphere.identity.organization.provisioning.entity.OrganizationProvisioningRequest;
+
+public interface ProvisioningRequestLifecycleService {
+
+    OrganizationProvisioningRequest prepareRequest(
+            String idempotencyKey,
+            Long organizationId,
+            String requestHash
+    );
+
+    void markFailed(
+            Long provisioningRequestId,
+            String errorSummary
+    );
+}

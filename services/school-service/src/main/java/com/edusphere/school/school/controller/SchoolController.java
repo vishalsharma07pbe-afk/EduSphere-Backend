@@ -1,7 +1,8 @@
 package com.edusphere.school.school.controller;
 
 import com.edusphere.school.common.dto.PageResponse;
-import com.edusphere.school.school.DTO.CreateSchoolRequest;
+import com.edusphere.school.school.DTO.SchoolOnboardingRequest;
+import com.edusphere.school.school.DTO.SchoolProvisioningResponse;
 import com.edusphere.school.school.DTO.SchoolResponse;
 import com.edusphere.school.school.DTO.UpdateSchoolRequest;
 import com.edusphere.school.school.enums.SchoolStatus;
@@ -22,10 +23,22 @@ public class SchoolController {
     }
 
     @PostMapping
-    public ResponseEntity<SchoolResponse> createSchool(
-            @Valid @RequestBody CreateSchoolRequest request) {
-        SchoolResponse response = schoolService.createSchool(request);
+    public ResponseEntity<SchoolProvisioningResponse> createSchool(
+            @Valid @RequestBody SchoolOnboardingRequest request) {
+        SchoolProvisioningResponse response = schoolService.onboardSchool(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @GetMapping("/{schoolId}/provisioning")
+    public ResponseEntity<SchoolProvisioningResponse> getProvisioningStatus(
+            @PathVariable Long schoolId) {
+        return ResponseEntity.ok(schoolService.getProvisioningStatus(schoolId));
+    }
+
+    @PostMapping("/{schoolId}/provisioning/retry")
+    public ResponseEntity<SchoolProvisioningResponse> retryProvisioning(
+            @PathVariable Long schoolId) {
+        return ResponseEntity.ok(schoolService.retryProvisioning(schoolId));
     }
 
     @GetMapping("/{schoolId}")

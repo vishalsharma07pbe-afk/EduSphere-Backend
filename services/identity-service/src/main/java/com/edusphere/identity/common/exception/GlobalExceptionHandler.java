@@ -20,12 +20,35 @@ import com.edusphere.identity.auth.activation.exception.InvalidActivationTokenEx
 import com.edusphere.identity.auth.activation.exception.PasswordMismatchException;
 import com.edusphere.identity.auth.passwordreset.exception.InvalidPasswordResetTokenException;
 import com.edusphere.identity.auth.refreshtoken.exception.InvalidRefreshTokenException;
+import com.edusphere.identity.organization.provisioning.exception.ProvisioningConflictException;
+import com.edusphere.identity.organization.provisioning.exception.ProvisioningInProgressException;
 import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler({
+            ProvisioningConflictException.class,
+            ProvisioningInProgressException.class
+    })
+    public ResponseEntity<ApiErrorResponse>
+    handleProvisioningConflict(
+            RuntimeException exception,
+            HttpServletRequest request
+    ) {
+        ApiErrorResponse response = createErrorResponse(
+                HttpStatus.CONFLICT,
+                exception.getMessage(),
+                request.getRequestURI(),
+                null
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(response);
+    }
 
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<ApiErrorResponse> handleResourceNotFound(

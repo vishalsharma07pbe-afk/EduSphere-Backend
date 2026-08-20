@@ -35,3 +35,10 @@ src/main/resources/keys/public.pem
 .vscode/
 
 .env
+*.env
+application-local.yml
+application-local.yaml
+application-*.local.yml
+application-*.local.yaml
+*.pem
+*.key

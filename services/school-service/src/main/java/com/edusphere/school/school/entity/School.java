@@ -29,8 +29,8 @@ public class School {
     private String address;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "status", nullable = false, length = 20)
-    private SchoolStatus status = SchoolStatus.ACTIVE;
+    @Column(name = "status", nullable = false, length = 30)
+    private SchoolStatus status = SchoolStatus.PENDING_PROVISIONING;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -64,8 +64,20 @@ public class School {
         return status;
     }
 
-    public void setStatus(SchoolStatus status) {
-        this.status = status;
+    public void markProvisioningPending() {
+        this.status = SchoolStatus.PENDING_PROVISIONING;
+    }
+
+    public void activate() {
+        this.status = SchoolStatus.ACTIVE;
+    }
+
+    public void markProvisioningFailed() {
+        this.status = SchoolStatus.PROVISIONING_FAILED;
+    }
+
+    public void deactivate() {
+        this.status = SchoolStatus.INACTIVE;
     }
 
     public String getAddress() {

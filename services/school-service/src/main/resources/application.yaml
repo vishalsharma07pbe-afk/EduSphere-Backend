@@ -23,3 +23,11 @@ management:
     web:
       exposure:
         include: health,info
+
+identity-service:
+  provisioning:
+    base-url: ${IDENTITY_SERVICE_BASE_URL:http://localhost:8081}
+    connect-timeout: 2s
+    read-timeout: 5s
+    api-key: ${IDENTITY_INTERNAL_API_KEY:}
+    service-name: school-service

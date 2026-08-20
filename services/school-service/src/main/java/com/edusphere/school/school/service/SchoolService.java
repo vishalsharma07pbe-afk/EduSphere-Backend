@@ -1,14 +1,17 @@
 package com.edusphere.school.school.service;
 
 import com.edusphere.school.common.dto.PageResponse;
-import com.edusphere.school.school.DTO.CreateSchoolRequest;
+import com.edusphere.school.school.DTO.SchoolOnboardingRequest;
+import com.edusphere.school.school.DTO.SchoolProvisioningResponse;
 import com.edusphere.school.school.DTO.SchoolResponse;
 import com.edusphere.school.school.DTO.UpdateSchoolRequest;
 import com.edusphere.school.school.enums.SchoolStatus;
 
 public interface SchoolService {
     SchoolResponse getSchoolById(long schoolId);
-    SchoolResponse createSchool(CreateSchoolRequest request);
+    SchoolProvisioningResponse onboardSchool(SchoolOnboardingRequest request);
+    SchoolProvisioningResponse getProvisioningStatus(long schoolId);
+    SchoolProvisioningResponse retryProvisioning(long schoolId);
     SchoolResponse updateSchool(long schoolId, UpdateSchoolRequest request);
     void deleteSchool(long schoolId);
     SchoolResponse restoreSchool(long schoolId);

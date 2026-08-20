@@ -39,6 +39,10 @@ jwt:
   access-token-expiration: 900
 
 security:
+  internal:
+    api-key: ${IDENTITY_INTERNAL_API_KEY:}
+    allowed-service-name: school-service
+
   activation-token:
     expiration: 24h
     resend-window: 24h

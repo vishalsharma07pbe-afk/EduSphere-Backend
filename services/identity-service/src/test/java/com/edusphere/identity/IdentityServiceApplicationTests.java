@@ -3,6 +3,8 @@ package com.edusphere.identity;
 import com.edusphere.identity.auth.activation.repository.UserActivationTokenRepository;
 import com.edusphere.identity.auth.passwordreset.repository.UserPasswordResetTokenRepository;
 import com.edusphere.identity.auth.refreshtoken.repository.RefreshTokenRepository;
+import com.edusphere.identity.organization.provisioning.repository.OrganizationProvisioningRequestRepository;
+import com.edusphere.identity.organization.repository.OrganizationRepository;
 import com.edusphere.identity.permission.repository.RolePermissionRepository;
 import com.edusphere.identity.roleapproval.repository.RoleAssignmentApprovalRepository;
 import com.edusphere.identity.roleapproval.repository.RoleAssignmentRequestRepository;
@@ -41,6 +43,11 @@ class IdentityServiceApplicationTests {
     private RefreshTokenRepository refreshTokenRepository;
     @MockitoBean
     private RolePermissionRepository rolePermissionRepository;
+    @MockitoBean
+    private OrganizationRepository organizationRepository;
+    @MockitoBean
+    private OrganizationProvisioningRequestRepository
+            organizationProvisioningRequestRepository;
     @MockitoBean
     private JavaMailSender mailSender;
 

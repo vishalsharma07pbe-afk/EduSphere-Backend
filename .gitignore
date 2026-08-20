@@ -18,6 +18,10 @@ application-local.yml
 application-local.yaml
 **/application-local.yml
 **/application-local.yaml
+**/application-*.local.yml
+**/application-*.local.yaml
+**/*.pem
+**/*.key
 
 # Application logs
 logs/

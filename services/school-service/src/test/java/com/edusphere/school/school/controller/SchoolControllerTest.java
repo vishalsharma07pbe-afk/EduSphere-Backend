@@ -1,8 +1,10 @@
 package com.edusphere.school.school.controller;
 
-import com.edusphere.school.school.DTO.CreateSchoolRequest;
+import com.edusphere.school.school.DTO.SchoolOnboardingRequest;
+import com.edusphere.school.school.DTO.SchoolProvisioningResponse;
 import com.edusphere.school.school.DTO.SchoolResponse;
 import com.edusphere.school.school.DTO.UpdateSchoolRequest;
+import com.edusphere.school.school.enums.ProvisioningStatus;
 import com.edusphere.school.school.enums.SchoolStatus;
 import com.edusphere.school.school.exception.DuplicateResourceException;
 import com.edusphere.school.school.exception.ResourceNotFoundException;
@@ -53,19 +55,27 @@ class SchoolControllerTest {
                   "name": "EduSphere Public School",
                   "email": "school@edusphere.com",
                   "phone": "9876543210",
-                  "address": "New Delhi"
+                  "address": "New Delhi",
+                  "initialAuthority": {
+                    "firstName": "Authority",
+                    "lastName": "One",
+                    "username": "authority.one",
+                    "email": "authority@edusphere.com",
+                    "phone": "9876543211"
+                  }
                 }
                 """;
 
-        SchoolResponse response = createSchoolResponse(
+        SchoolProvisioningResponse response = createProvisioningResponse(
                 1L,
-                "SCH001",
-                "EduSphere Public School",
-                SchoolStatus.ACTIVE
+                SchoolStatus.ACTIVE,
+                ProvisioningStatus.SUCCEEDED,
+                1,
+                null
         );
 
-        when(schoolService.createSchool(
-                any(CreateSchoolRequest.class)
+        when(schoolService.onboardSchool(
+                any(SchoolOnboardingRequest.class)
         )).thenReturn(response);
 
         mockMvc.perform(post(BASE_URL)
@@ -74,20 +84,13 @@ class SchoolControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(content()
                         .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.id").value(1))
-                .andExpect(jsonPath("$.schoolCode").value("SCH001"))
-                .andExpect(jsonPath("$.name")
-                        .value("EduSphere Public School"))
-                .andExpect(jsonPath("$.email")
-                        .value("school@edusphere.com"))
-                .andExpect(jsonPath("$.phone")
-                        .value("9876543210"))
-                .andExpect(jsonPath("$.address")
-                        .value("New Delhi"))
-                .andExpect(jsonPath("$.status").value("ACTIVE"));
+                .andExpect(jsonPath("$.schoolId").value(1))
+                .andExpect(jsonPath("$.schoolStatus").value("ACTIVE"))
+                .andExpect(jsonPath("$.provisioningStatus").value("SUCCEEDED"))
+                .andExpect(jsonPath("$.attemptCount").value(1));
 
         verify(schoolService)
-                .createSchool(any(CreateSchoolRequest.class));
+                .onboardSchool(any(SchoolOnboardingRequest.class));
     }
 
     @Test
@@ -100,7 +103,13 @@ class SchoolControllerTest {
               "name": "",
               "email": "invalid-email",
               "phone": "123",
-              "address": "New Delhi"
+              "address": "New Delhi",
+              "initialAuthority": {
+                "firstName": "",
+                "username": "",
+                "email": "bad",
+                "phone": "1"
+              }
             }
             """;
 
@@ -126,12 +135,19 @@ class SchoolControllerTest {
                   "name": "EduSphere Public School",
                   "email": "school@edusphere.com",
                   "phone": "9876543210",
-                  "address": "New Delhi"
+                  "address": "New Delhi",
+                  "initialAuthority": {
+                    "firstName": "Authority",
+                    "lastName": "One",
+                    "username": "authority.one",
+                    "email": "authority@edusphere.com",
+                    "phone": "9876543211"
+                  }
                 }
                 """;
 
-        when(schoolService.createSchool(
-                any(CreateSchoolRequest.class)
+        when(schoolService.onboardSchool(
+                any(SchoolOnboardingRequest.class)
         )).thenThrow(
                 new DuplicateResourceException(
                         "School code already exists"
@@ -150,7 +166,52 @@ class SchoolControllerTest {
                         .value(BASE_URL));
 
         verify(schoolService)
-                .createSchool(any(CreateSchoolRequest.class));
+                .onboardSchool(any(SchoolOnboardingRequest.class));
+    }
+
+    @Test
+    void getProvisioningStatus_whenSchoolExists_returnsStatus()
+            throws Exception {
+
+        when(schoolService.getProvisioningStatus(1L))
+                .thenReturn(createProvisioningResponse(
+                        1L,
+                        SchoolStatus.PROVISIONING_FAILED,
+                        ProvisioningStatus.FAILED,
+                        1,
+                        "identity-service unavailable"
+                ));
+
+        mockMvc.perform(get(BASE_URL + "/{schoolId}/provisioning", 1L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.schoolId").value(1))
+                .andExpect(jsonPath("$.schoolStatus").value("PROVISIONING_FAILED"))
+                .andExpect(jsonPath("$.provisioningStatus").value("FAILED"))
+                .andExpect(jsonPath("$.lastErrorSummary").value("identity-service unavailable"));
+
+        verify(schoolService).getProvisioningStatus(1L);
+    }
+
+    @Test
+    void retryProvisioning_whenFailed_returnsUpdatedStatus()
+            throws Exception {
+
+        when(schoolService.retryProvisioning(1L))
+                .thenReturn(createProvisioningResponse(
+                        1L,
+                        SchoolStatus.ACTIVE,
+                        ProvisioningStatus.SUCCEEDED,
+                        2,
+                        null
+                ));
+
+        mockMvc.perform(post(BASE_URL + "/{schoolId}/provisioning/retry", 1L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.schoolStatus").value("ACTIVE"))
+                .andExpect(jsonPath("$.provisioningStatus").value("SUCCEEDED"))
+                .andExpect(jsonPath("$.attemptCount").value(2));
+
+        verify(schoolService).retryProvisioning(1L);
     }
 
     @Test
@@ -609,6 +670,24 @@ class SchoolControllerTest {
                 "9876543210",
                 "New Delhi",
                 status,
+                null,
+                null
+        );
+    }
+
+    private SchoolProvisioningResponse createProvisioningResponse(
+            long schoolId,
+            SchoolStatus schoolStatus,
+            ProvisioningStatus provisioningStatus,
+            int attemptCount,
+            String lastErrorSummary
+    ) {
+        return new SchoolProvisioningResponse(
+                schoolId,
+                schoolStatus,
+                provisioningStatus,
+                attemptCount,
+                lastErrorSummary,
                 null,
                 null
         );

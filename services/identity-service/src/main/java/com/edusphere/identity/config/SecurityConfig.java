@@ -12,18 +12,47 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.web.SecurityFilterChain;
+import com.edusphere.identity.organization.provisioning.security.InternalServiceAuthenticationFilter;
+import com.edusphere.identity.organization.provisioning.security.InternalServiceSecurityProperties;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 
 import java.util.Collection;
 import java.util.LinkedHashSet;
 
 @Configuration
 @EnableMethodSecurity
+@EnableConfigurationProperties(InternalServiceSecurityProperties.class)
 public class SecurityConfig {
+
+    @Bean
+    public InternalServiceAuthenticationFilter
+    internalServiceAuthenticationFilter(
+            InternalServiceSecurityProperties properties
+    ) {
+        return new InternalServiceAuthenticationFilter(properties);
+    }
+
+    @Bean
+    public FilterRegistrationBean<InternalServiceAuthenticationFilter>
+    disableInternalServiceFilterRegistration(
+            InternalServiceAuthenticationFilter filter
+    ) {
+        FilterRegistrationBean<InternalServiceAuthenticationFilter>
+                registration =
+                new FilterRegistrationBean<>(filter);
+
+        registration.setEnabled(false);
+
+        return registration;
+    }
 
     @Bean
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
-            JwtAuthenticationConverter jwtAuthenticationConverter
+            JwtAuthenticationConverter jwtAuthenticationConverter,
+            InternalServiceAuthenticationFilter internalServiceFilter
     ) throws Exception {
 
         http
@@ -81,7 +110,14 @@ public class SecurityConfig {
                                 "/api/v1/auth/logout"
                         ).permitAll()
 
+                        .requestMatchers("/internal/**")
+                        .hasRole("INTERNAL_SERVICE")
                         .anyRequest().authenticated()
+                )
+
+                .addFilterBefore(
+                        internalServiceFilter,
+                        BearerTokenAuthenticationFilter.class
                 )
 
                 .oauth2ResourceServer(oauth2 -> oauth2
